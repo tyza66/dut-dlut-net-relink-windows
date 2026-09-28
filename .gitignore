@@ -1,0 +1,10 @@
+# local test residue (tools/*.ps1 generate it, and it must never be committed)
+*.log
+*.tmp
+zz_*
+
+# editor / OS noise
+.vscode/
+.vs/
+Thumbs.db
+desktop.ini

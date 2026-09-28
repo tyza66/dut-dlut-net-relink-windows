@@ -1,0 +1,409 @@
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script type="text/javascript">
+        //存在父页面，并且父页面不是当前系统（casLogoutView.jsp中如果不做判断会一直刷新）
+        if(window.top!=window.self &&
+            window.top.location.href.indexOf("sso.dlut.edu.cn")==-1 &&
+            window.top.location.href.indexOf("/cas")==-1){
+            window.top.location.reload();
+        }
+    </script>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="keywords" content="" />
+    <meta name="decription" content="" />
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Cache-Control" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="renderer" content="webkit">
+    <link rel="stylesheet" type="text/css" href="/cas/comm/icon/icon.css">
+    <link rel="stylesheet" type="text/css" href="/cas/comm/icon/ie7/ie7.css">
+    <link rel="stylesheet" type="text/css" href="/cas/comm/css/camera.css">
+    
+    <link rel="stylesheet" type="text/css" href="/cas/comm/css/login12.css?version=20240710">
+    <script type="text/javascript" src="/cas/comm/icon/ie7/ie7.js"></script>
+    <title>统一身份认证</title>
+
+    
+
+    
+
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        a {
+            color: #09f;
+        }
+        a:hover {
+            text-decoration: none;
+        }
+        #back_to_camera {
+            background: rgba(255,255,255,.9);
+            clear: both;
+            display: block;
+            height: 40px;
+            line-height: 40px;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+        .fluid_container {
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            position: fixed;
+            right: 0;
+            top: 0;
+            z-index: 0;
+        }
+        #camera_wrap_4 {
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            margin-bottom: 0!important;
+            position: fixed;
+            right: 0;
+            top: 0;
+        }
+        .camera_bar {
+            z-index: 2;
+        }
+        .camera_thumbs {
+            margin-top: -100px;
+            position: relative;
+            z-index: 1;
+        }
+        .camera_thumbs_cont {
+            border-radius: 0;
+            -moz-border-radius: 0;
+            -webkit-border-radius: 0;
+        }
+        .camera_overlayer {
+            opacity: .1;
+        }
+    </style>
+</head>
+
+<body class="fluid_container" id="container_bg" style="height: 100%;">
+<form id="loginForm" action="/cas/login?service=http://172.20.30.2:8080/Self/sso_login?type=null&amp;wlan_user_ip=192.0.2.10&amp;wlan_user_ipv6=null&amp;wlan_ac_ip=null" method="post" onsubmit="return false;">
+    <div class="camera_wrap camera_emboss pattern_1" id="camera_wrap_4">
+        <div data-thumb="/cas/comm/image/bg-2.png" data-src="/cas/comm/image/bg-2.png">
+        </div>
+        <div data-thumb="/cas/comm/image/bg-1.png" data-src="/cas/comm/image/bg-1.png">
+        </div>
+        <div data-thumb="/cas/comm/image/bg-2.png" data-src="/cas/comm/image/bg-3.png">
+        </div>
+        <div data-thumb="/cas/comm/image/bg-2.png" data-src="/cas/comm/image/bg-4.png">
+        </div>
+    </div>
+    
+    <div class="login_conatiner" id="login_container_box">
+        <div class="shadow-bar">
+            <div class="floor1">
+                <div class="logo">
+                    <img src="/cas/comm/image/dlut/head_logo.png"/>
+                    <span class="line"></span>
+                    <span class="title">统一身份认证</span>
+                </div>
+                <div class="solt-content">
+                    <a class="zh-en-btn" id="change_language" value="English">English</a>
+                    <a class="help-btn" href="/cas/login_ZH-help.jsp" >登录帮助</a>
+                </div>
+            </div>
+        </div>
+        <!-- 登录块 start-->
+        <div class="login-container-outside">
+            <div class="login-container-block" style="">
+           <div class="qr-part" style="background-image: url(comm/image/login-qr-bg.png);">
+                    <div id="div_qr_title" class="qr-title">微信扫码登录</div>
+                    <div class="icon-box">
+                        <img src="/cas/comm/image/icon-box.png"/>
+                    </div>
+                    
+                    <div id="div_qrcode">
+	                    <div class="qr-code" id="qrcode"> </div>
+	                    <div class="qr-code-info">已绑定账号的微信扫码登录</div>
+                    </div>
+                    
+                    <div id="div_fqrcode" style="display:none;">
+	                    <div class="qr-code" id="faceQrCode"> </div>
+	                    <div class="qr-code-info">请使用微信扫码进行人脸核身认证登录</div>
+                    </div>
+                    
+                    <div id="div_appqrcode" style="display:none;">
+	                    <div class="qr-code" id="appQrCode"> </div>
+	                    <div id="div_appqrcode_timeout" class="code-gray" style="width: 150px; height: 150px;margin:110px 35px;display:none;">
+	                    	<p class="code-fail" style="font-size: 14.3px;">二维码已失效</p>
+	                    	<button id="btn_appqrcode_fresh" class="code-refresh" style="font-size: 14.3px;">刷新</button>
+	                    </div>
+	                    <div class="qr-code-info">请使用国家网络身份认证App扫码登录</div>
+                    </div>
+                    
+                    <div class="select-login-container">
+							<a id="a_qrcode" class="select-login-btn">
+								<img src="comm/image/login-type-2.png">
+							</a>
+							<a id="a_fqrcode" class="select-login-btn">
+								<img src="comm/image/login-type-3.png">
+							</a>
+							<a id="a_aqrcode" class="select-login-btn">
+								<img src="comm/image/login-type-1.png">
+							</a>
+						</div>
+                </div> 
+                <div class="login-part" style="background-image: url(/cas/comm/image/flower-bg.png);">
+                    <div class="login-tab-row">
+                        <a class="login-tab-item active" id="password_login" style="cursor: pointer">账号登录</a>
+                        <a class="login-tab-item" id="mobile_login" style="cursor: pointer">短信登录</a>
+
+                    </div>
+                    
+                    <span class="login_box_title_notice script_red" style="display:none;" id="errormsg"></span>
+                    
+                    <div id="password_login_content">
+                        <div class="login-input-row" style="background-image:url(/cas/comm/image/user-icon.png);">
+                            <input type="text" id="un" placeholder="职工号/学号" autocomplete="false" maxlength="20"/>
+                        </div>
+                        <div class="login-input-row" style="background-image:url(/cas/comm/image/password-icon.png);">
+                            <input type="password" id="pd" placeholder="密码" autocomplete="false" maxlength="30"/>
+                            <a name="a_eye" class="eye-close" style="display:none;"></a>
+                        </div>
+
+                        
+                    </div>
+                    <div style="display:none;" id="mobile_login_content">
+                        <div class="login-input-row" style="background-image:url(/cas/comm/image/phone-icon.png);">
+                            <input type="text" id="phone" placeholder="请输入手机号" maxlength="11"/>
+                            <img src="/cas/" style="display:none;" id="getPhoneCode"/>
+                        </div>
+                        <div class="login-input-row" style="background-image:url(/cas/comm/image/vcode-icon.png);">
+                            <input type="text" id="code" placeholder="输入图形验证码" maxlength="5"/>
+                            <div class="code-pic"><a href="javascript:;" class="ide_code_next" id="a_changeCode_mobile"><img src="/cas/code" class="ide_code_image" id="codeImage_mobile"/></a></div>
+                        </div>
+                        <div class="login-input-row" style="background-image:url(/cas/comm/image/mail-icon.png);">
+                            <input type="text" id="phoneCode" placeholder="短信验证码" maxlength="6"/><a class="code-btn" id="getPhone">获取验证码</a>
+                        </div>
+                        <div class="login-info-link" id="remember_phone">
+                            <div class="rem-username">
+                                <input type="checkbox" id="rememberPhone"/>
+                                记住手机号
+                            </div>
+                        </div>
+                    </div>
+                 
+                    <div class="login-info-link" id="remember_retrieve">
+                        <div class="rem-username">
+                            <input type="checkbox" id="rememberName"/>
+                            记住用户名
+                        </div>
+                        <a class="link-btn" href="pwd" class="login_box_psd" id="pwd_url">找回密码</a>
+                    </div>
+                    <div class="login-btn-row" id="loginSubmitBtn">
+                        <a class="login-btn" id="index_login_btn" style="background-image: url(/cas/comm/image/login-btn-bg.png);">立即登录</a>
+                    </div>
+
+
+                    <div class="alert-info-row" >
+                        新生或新入职教职工请先<a href="activate">激活账号</a>后登录
+                    </div>
+                    <div class="alert-info-row" >
+
+                        失效账号请<a href="/cas/invalidActivation">自助激活</a>账号
+                    </div>
+                    <div class="details-info-row">
+                        <div class="title-box">建议浏览器：</div>
+                        <ul class="info-list">
+                            <li class="info-item" id="ie_blank">
+                                <img src="/cas/comm/image/ie-pic.png"/>
+                                <span>Edge</span>
+                            </li>
+                            <li class="info-item" id="firefox_blank">
+                                <img src="/cas/comm/image/firefox-pic.png"/>
+                                <span>火狐</span>
+                            </li>
+                            <li class="info-item" id="chrome_blank">
+                                <img src="/cas/comm/image/google-pic.png"/>
+                                <span>谷歌</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <input type="hidden" id="rsa" name="rsa"/>
+        <input type="hidden" id="ul" name="ul"/>
+        <input type="hidden" id="pl" name="pl"/>
+        <input type="hidden" id="sl" name="sl"/>
+        <input type="hidden" id="lt" name="lt" value="LT-245653-SmSWepqBLiVWC9bb5bFFc2crXboIT6-cas" />
+        <input type="hidden" name="execution" value="e1s2" />
+        <input type="hidden" name="_eventId" value="submit" />
+        <p style="display:none;">
+            <span id="errormsghide" class="login_box_title_notice script_red">Incorrect username and password</span>
+        </p>
+        <!-- 登录块 END-->
+    </div>
+</form>
+<footer id="footer">
+    <div class="login_footer">
+        <p class="left"><span>版权所有：大连理工大学</span><span>地址：中国·辽宁省大连市甘井子区凌工路2号</span><span>邮编：116024&nbsp;&nbsp;</span></p>
+    </div>
+</footer>
+<!--手机动态码登录选择账号框-->
+<form id="accountForm">
+    <div id="chooseAccountDiv" style="display: none">
+        <table id="accountInfo" lay-filter="accountInfo"></table>
+    </div>
+</form>
+
+<div class="popup-page-con" id="choose_id" style="display:none;">
+    <div class="popup-shadow-box"></div>
+    <div class="popup-outside-container">
+        <div class="popup-panel-container">
+            <div class="popup-panel-header">
+                <div class="title-box">请选择你要登录的账号</div>
+                <a class="close-btn" id="choose_close">×</a>
+            </div>
+            <div class="popup-panel-body">
+                <ul class="popup-select-list" id="accountContent">
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+<script type="text/javascript" src="/cas/comm/js/des.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/jquery.min.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/jquery.cookie.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/jquery-camera.min.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/jquery.easing.1.3.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/camera.min.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/jquery.qrcode.min.js?v=20240515"></script>
+
+<script type="text/javascript" src="/cas/comm/plugin/captcha/jquery-1.10.3-ui.min.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/plugin/captcha/jquery.captcha.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/login-qrcode.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/face-login-qrcode.js?v=20240814"></script>
+<script type="text/javascript" src="/cas/comm/js/qrcode.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/icheck.min.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/DataTableExtend.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/plugin/layui/lay/modules/layer.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/plugin/layui/layui.js?v=20240515"></script>
+<script type="text/javascript" src="/cas/comm/js/login12.js?v=20240515"></script>
+<script>
+
+function generateUUID() {
+  return 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'.replace(/x/g, function(c) {
+    // 生成随机数并按 UUID 规则处理
+    const r = Math.random() * 16 | 0;
+    return r.toString(16);
+  });
+}
+
+
+function chooseAppScanAccount(jsonObj) {
+	var choose_content = "";
+	//var jsonObj = $.parseJSON(data);
+	for (let key in jsonObj) {
+	    if (jsonObj.hasOwnProperty(key)) {
+	        if(key != 'haveUsers'){
+		        choose_content += "<li class=\"popup-select-item\" name='choose_user'><div class='user-number' name='id_number' >"+key+"</li>";
+	        }
+	    }
+	}
+	
+	//id为accountContent的标签下添加choose_content
+	$("#accountContent").html(choose_content);
+	$("#choose_id").show();
+	$("#choose_close").click(function(){
+		// 关闭选择账号的open弹出框
+		$("#accountContent").html("");
+		$("#choose_id").hide();
+	})
+	$("li[name='choose_user']").click(function(){
+		var idnumber = $(this).find("div[name='id_number']").text();
+		layer.confirm('确认登录账号[' + idnumber + ']？', {
+			title:"登录确认",
+			time: 0 //不自动关闭
+			,btn: ['确认', '取消']
+			,yes: function(index){
+				layer.close(index);
+				document.cookie = "CASTGC="+jsonObj[idnumber] ;
+				$.get("/cas/cb?method=logger" , function(data){
+					location.reload();
+			  	})
+				// 关闭选择账号的open弹出框
+				$("#accountContent").html("");
+				$("#choose_id").hide();
+			}
+		});
+	})
+}
+
+function fresh(uuid){
+	let count = 0;
+	const intervalId = setInterval(() => {
+	  count++;
+	  if (count >= 60*2) {
+	    clearInterval(intervalId); //2分钟失效
+	    $("#div_appqrcode_timeout").show();
+	  }else{
+		  $.get("/cas/cb?method=refresh&uuid="+uuid , function(data){
+			  if(data != null & data.haveUsers == "1"){
+				  clearInterval(intervalId); 
+				  chooseAppScanAccount(data);
+			  }else if(data.info != null && data.info.indexOf("TGT-")!=-1){
+				  clearInterval(intervalId); 
+					document.cookie = "CASTGC="+data.info ;
+					$.get("/cas/cb?method=logger" , function(data){
+						location.reload();
+				  	})
+			  }else{
+				  clearInterval(intervalId); 
+					location.href = "/cas/reg.html";
+			  }
+		  })
+	  }
+	}, 1500);
+}
+
+    jQuery(function(){
+        jQuery('#camera_wrap_4').camera({
+            height: 'auto',//高度
+            hover: false,//鼠标经过幻灯片时暂停(true, false)
+            //imagePath: 图片的目录
+            loader: 'none',//加载图标(pie, bar, none)
+            //loaderColor: 加载图标颜色( '颜色值,例如:#eee' )
+            //loaderBgColor: 加载图标背景颜色
+            loaderOpacity: '8',//加载图标的透明度( '.8'默认值, 其他的可以写 0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1 )
+            loaderPadding: '2',//加载图标的大小( 填数字,默认为2 )
+            navigation: false,//左右箭头显示/隐藏(true, false)
+            navigationHover: false,//鼠标经过时左右箭头显示/隐藏(true, false)
+            pagination: false,//是否显示分页(true, false)
+            playPause: false,//暂停按钮显示/隐藏(true, false)
+            pauseOnClick: false,//鼠标点击后是否暂停(true, false)
+            portrait: false,//显示幻灯片里所有图片的实际大小(true, false)
+            thumbnails: false,//是否显示缩略图(true, false)
+            time: 10000,// 幻灯片播放时间( 填数字 )
+            //transPeriod: 4000,//动画速度( 填数字 )
+            imagePath: '../images/',
+            thumbnails:false
+        });
+    });
+    var winW = $("body").width();
+    $("#login_container_box").css("width","100%")
+</script>
+</html>
