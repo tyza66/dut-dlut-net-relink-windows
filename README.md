@@ -203,7 +203,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object Com
 ## 排障
 
 - 日志写 `CAS says: Incorrect username and password`：密码错了，重跑 `install.ps1` 或 `-Configure` 改。
-- 日志写 `CAS wants a captcha` 或 `CAS refused the login without an error message`：连续失败后 CAS 会要验证码，这时候脚本进不去。用浏览器登录一次校园网把验证码过掉，脚本随后自己会恢复。
+- 日志写 `CAS wants a captcha` 或 `CAS refused the login without an error message`：CAS 要过人机校验，或者你的账号开了二次认证（密码对了还要给绑定手机发短信验证码）。用浏览器登录一次校园网把验证码过掉，脚本随后自己会恢复；如果是二次认证，脚本没法无人值守登录，得先去门户的安全设置里把它关掉。
 - `-Status` 里 `credentials : NOT decryptable`：任务运行身份和密码加密作用域对不上，用你实际在用的那个 `-Mode` 重装一次。
 - 换了网线口或网卡：默认认默认路由那块网卡，也可以把网卡名写进 `InterfaceName`。
 - 想手工看门户到 CAS 的链路通不通：`powershell -ExecutionPolicy Bypass -File tools\diagnose_cas_page.ps1`，只读探测，不提交凭据。
