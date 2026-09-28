@@ -1,4 +1,4 @@
-# End-to-end smoke test of the main watchdog script with throwaway credentials.
+﻿# End-to-end smoke test of the main watchdog script with throwaway credentials.
 # Verifies: config load, IP discovery, a real (rejected) CAS login attempt, online
 # probing, log writing and the single-instance mutex. Nothing is left behind.
 $ErrorActionPreference = 'Stop'
@@ -13,6 +13,19 @@ function Invoke-Watchdog {
     $host51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     & $host51 -NoProfile -ExecutionPolicy Bypass -File $scriptPath @Arguments | Out-Host
     return $LASTEXITCODE
+}
+
+# Every run below needs the single-instance mutex, and the installed watchdog holds it
+# for its whole life. Skip with the reason instead of failing on exit code 3.
+$running = $null
+if ([System.Threading.Mutex]::TryOpenExisting('Local\DutNetRelinkWatchdog', [ref]$running)) {
+    $running.Dispose()
+    Write-Host 'SKIPPED: a watchdog is already running on this machine.'
+    Write-Host 'It owns the single-instance mutex this suite needs, so every run below would just'
+    Write-Host 'print "another watchdog instance is already running" and exit 3.'
+    Write-Host 'Stop it first (or run this on a machine where the script is not installed):'
+    Write-Host '  uninstall.ps1, or end the powershell process whose command line names DutNetRelink.ps1'
+    exit 0
 }
 
 try {

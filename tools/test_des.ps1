@@ -1,4 +1,4 @@
-Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\CasDes.psm1') -Force -DisableNameChecking
+﻿Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\CasDes.psm1') -Force -DisableNameChecking
 
 $ErrorActionPreference = 'Stop'
 $utf = [string]::Join('', [char[]]@(0x4E2D, 0x6587, 0x5B57, 0x7B26))

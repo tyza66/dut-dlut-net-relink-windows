@@ -1,4 +1,4 @@
-# CasDes - faithful PowerShell port of sso.dlut.edu.cn/cas/comm/js/des.js (strEnc)
+﻿# CasDes - faithful PowerShell port of sso.dlut.edu.cn/cas/comm/js/des.js (strEnc)
 # The upstream DES variant is self-consistent but NOT standard DES: the tables look
 # standard, the key schedule and round wiring do not. Ported bit-for-bit and pinned
 # to golden vectors in tools/test_des.ps1.

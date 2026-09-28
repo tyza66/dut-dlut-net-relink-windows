@@ -1,4 +1,4 @@
-# ConfigStore - settings and credential persistence for DutNetRelink.
+﻿# ConfigStore - settings and credential persistence for DutNetRelink.
 # The password is never written in clear text: config.json holds a base64 DPAPI
 # blob scoped to CurrentUser or LocalMachine, so it only decrypts for the account
 # the watchdog runs as. LocalMachine is the fallback for a SYSTEM startup task.
@@ -151,6 +151,45 @@ function Unprotect-DlutPassword {
         return ''
     }
     return $result.Password
+}
+
+function Protect-DlutText {
+    <#
+    Same DPAPI envelope as the password, for text that must not sit on disk in the
+    clear (the CAS cookie jar). Returns $null instead of throwing when the host has
+    no System.Security assembly, so callers can degrade instead of crashing.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Text,
+        [string]$Scope = 'CurrentUser'
+    )
+    if ($null -eq $Text) { $Text = '' }
+    $target = Get-DlutDataProtectionScope $Scope
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+        $blob = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, $target)
+        if (-not $blob) { return $null }
+        return [Convert]::ToBase64String($blob)
+    } catch {
+        Write-Verbose ('cannot protect text: ' + $_.Exception.Message)
+        return $null
+    }
+}
+
+function Unprotect-DlutText {
+    <# Inverse of Protect-DlutText. $null when the blob is absent or not ours. #>
+    param([string]$Protected, [string]$Scope = 'CurrentUser')
+    if ([string]::IsNullOrWhiteSpace($Protected)) { return $null }
+    $target = Get-DlutDataProtectionScope $Scope
+    try {
+        $blob = [Convert]::FromBase64String($Protected)
+        $plain = [System.Security.Cryptography.ProtectedData]::Unprotect($blob, $null, $target)
+        if ($null -eq $plain) { return $null }
+        return [System.Text.Encoding]::UTF8.GetString($plain)
+    } catch {
+        Write-Verbose ('cannot unprotect text: ' + $_.Exception.Message)
+        return $null
+    }
 }
 
 function Test-DlutCredential {

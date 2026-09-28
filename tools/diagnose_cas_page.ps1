@@ -1,4 +1,4 @@
-# Read-only probe: fetches a fresh CAS login page and reports where the word
+﻿# Read-only probe: fetches a fresh CAS login page and reports where the word
 # "captcha" appears, so the error extraction in CasAuth.psm1 cannot be fooled by
 # the always-present hidden phone-login block.
 $ErrorActionPreference = 'Stop'

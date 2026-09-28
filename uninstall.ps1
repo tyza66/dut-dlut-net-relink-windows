@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Removes the DutNetRelink watchdog, its boot hook and its background process.
 .DESCRIPTION
@@ -23,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 $script:RepoRoot = if ($RepoRoot) { $RepoRoot } else { $PSScriptRoot }
 $libPath = Join-Path $script:RepoRoot 'lib'
 Import-Module (Join-Path $libPath 'ConfigStore.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $libPath 'CasSession.psm1') -Force -DisableNameChecking
 
 $script:TaskName = $TaskName
 $runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -73,6 +74,15 @@ if ($RemoveConfig -and (Test-Path -LiteralPath $configPath)) {
     if (Confirm-Action ('delete the credentials in ' + $configPath)) {
         Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
         Write-Host 'credentials removed.'
+        # The cookie jar is as good as the password: it also authenticates, so it
+        # goes with the account and never outlives -RemoveConfig.
+        try {
+            $sessionPath = Get-DlutSessionPath
+            if (Test-Path -LiteralPath $sessionPath) {
+                Remove-Item -LiteralPath $sessionPath -Force -ErrorAction SilentlyContinue
+                Write-Host 'saved CAS session removed.'
+            }
+        } catch { }
     } else {
         Write-Host 'credentials kept.'
     }

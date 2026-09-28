@@ -1,4 +1,4 @@
-# Exercises the pieces of the login flow that need no credentials:
+﻿# Exercises the pieces of the login flow that need no credentials:
 # adapter IP discovery, online detection, portal challenge and CAS form parsing.
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\CasAuth.psm1') -Force -DisableNameChecking

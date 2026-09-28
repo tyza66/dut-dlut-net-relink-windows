@@ -1,4 +1,4 @@
-# Exercises ConfigStore without touching the real user config.
+﻿# Exercises ConfigStore without touching the real user config.
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\ConfigStore.psm1') -Force -DisableNameChecking
 

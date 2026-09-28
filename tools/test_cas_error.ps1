@@ -1,4 +1,4 @@
-# Offline regression test for the CAS error extraction. Uses the pages captured in
+﻿# Offline regression test for the CAS error extraction. Uses the pages captured in
 # refs/, so it never invents a reason and never touches the network.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot

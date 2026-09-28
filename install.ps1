@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Installs the DLUT campus network watchdog as a scheduled task.
 .DESCRIPTION
@@ -40,9 +40,11 @@ $script:RepoRoot = if ($RepoRoot) { $RepoRoot } else { $PSScriptRoot }
 $script:ScriptPath = Join-Path $script:RepoRoot 'src\DutNetRelink.ps1'
 $libPath = Join-Path $script:RepoRoot 'lib'
 
-foreach ($module in @('CasDes.psm1', 'CasAuth.psm1', 'ConfigStore.psm1')) {
+foreach ($module in @('CasDes.psm1', 'CasAuth.psm1', 'ConfigStore.psm1', 'CasSession.psm1')) {
     Import-Module (Join-Path $libPath $module) -Force -DisableNameChecking
 }
+
+$script:SessionFile = Get-DlutSessionPath
 
 function Write-Step {
     param([string]$Message)
@@ -174,6 +176,15 @@ while ($true) {
         Write-Host 'CAS accepted the credentials.'
         break
     }
+    if ($check.MfaRequired) {
+        # The first factor passed, so the credentials are right. CAS now wants an SMS
+        # code, which a background process cannot read; asking the user to retype a
+        # correct password would only be confusing.
+        Write-Host 'CAS is now asking for the SMS second factor.'
+        Write-Host 'The username and password themselves are correct, so they get saved as they are.'
+        Write-Host 'Finish the login once with: ' + $script:ScriptPath + ' -CasLogin'
+        break
+    }
     Write-Host ('login check failed: ' + $check.Message)
     if ($check.Message -like 'portal did not issue a challenge*') {
         Write-Host 'the portal did not answer, so the credentials may still be fine; saving anyway'
@@ -267,6 +278,8 @@ if ($bootHook -eq 'runkey') {
 
 if (-not $NoStart) {
     if ($bootHook -eq 'task') {
+        # Nothing to ask about yet: the watchdog may need a human only for the SMS
+        # second factor, which is the very next step offered once it is running.
         Start-ScheduledTask -TaskName $script:TaskName
         Write-Host 'started the watchdog, giving it a few seconds...'
         Start-Sleep -Seconds 5
@@ -288,6 +301,27 @@ if (-not $NoStart) {
     }
 } else {
     Write-Host 'not started yet'
+}
+
+Write-Step 'One-time second-factor login'
+$needsHuman = $false
+if ($script:SessionFile -and (Test-Path -LiteralPath $script:SessionFile)) {
+    $sessionAge = ((Get-Date) - (Get-Item -LiteralPath $script:SessionFile).LastWriteTime).TotalHours
+    Write-Host ('a saved CAS session exists (' + [int]$sessionAge + 'h old), so the watchdog reconnects on its own')
+} else {
+    $needsHuman = $true
+    Write-Host 'no saved CAS session yet: the first reconnect needs an SMS code from you.'
+    Write-Host 'DLUT asks this account for a second factor, and a background process cannot read a text message.'
+    Write-Host 'Run the login below once, and the watchdog takes over after that.'
+    Write-Host ''
+    Write-Host ('    ' + $script:ScriptPath + ' -CasLogin')
+}
+if (-not $NoStart -and $script:CanPrompt -and $needsHuman) {
+    $now = Read-Host 'Do that login right now? It needs your phone [Y/n]'
+    if ($now -notmatch '^[nN]') {
+        & $script:ScriptPath -CasLogin
+        Write-Host ''
+    }
 }
 
 Write-Step 'Current status'

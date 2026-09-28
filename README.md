@@ -5,6 +5,7 @@
 - 只依赖 Windows 10 / 11 自带的 Windows PowerShell 5.1，不需要 .NET、Python 或任何第三方组件。
 - 密码用 Windows 自带的 DPAPI 加密后存在本机，永不明文落盘。
 - 只访问学校的门户和 CAS，不往任何第三方服务器发数据。
+- 账号要是开了短信二次认证：一次人工登录换一个长期 CAS 会话，之后掉线重连全自动，不用再掏手机。
 
 **懒得自己敲命令，让 AI 帮你装**：把下面这句话连同本仓库目录一起丢给 AI 即可。
 
@@ -32,6 +33,8 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey
 
 **4. 完事。** 脚本会顺手注册开机启动项、把看门狗拉起来，最后打印一份状态。之后每次开机它自己跑，掉线了自己重连，日志在 `%LOCALAPPDATA%\DutNetRelink\logs\`。
 
+**5. 账号开了二次认证的话还差一步。** CAS 会要求给绑定手机发短信验证码，后台进程没人值守收不了；按下面[账号开了二次认证（短信验证码）怎么办](#账号开了二次认证短信验证码怎么办)跑一次 `-CasLogin` 把会话换下来，之后就真不用管了。
+
 如果这台机器让你建计划任务，用默认模式更好：进程要是挂了，任务计划程序会把它重新拉起来。
 
 ```powershell
@@ -42,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 ### 安装时你会看到什么
 
-下面是真实输出，账号做了打码：
+下面是真实输出，这一次是重跑，所以凭据那步直接沿用了已存的，账号做了打码：
 
 ```text
 DutNetRelink - DLUT campus network auto reconnect
@@ -50,10 +53,8 @@ repo: D:\Projects\dut-dlut-net-relink-windows
 boot hook: HKCU\...\Run registry entry (no administrator rights needed)
 
 == Credentials
-Username (student ID): 22019999
-Password: ************
-checking the credentials against CAS from 192.0.2.10 ...
-CAS accepted the credentials.
+credentials for 22019999 are already stored (scope CurrentUser)
+keeping them; pass -Username / -Password to replace them
 
 == Saving settings
 config: C:\Users\你\AppData\Local\DutNetRelink\config.json
@@ -65,6 +66,14 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run
     DutNetRelink = "C:\windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "...\src\DutNetRelink.ps1"
 the watchdog starts with your logon and stays resident, with no console window.
 note: nothing restarts it if it is ever killed. -Mode Logon (scheduled task) does that, if you can run it elevated.
+watchdog running in the background as pid 56208
+
+== One-time second-factor login
+no saved CAS session yet: the first reconnect needs an SMS code from you.
+DLUT asks this account for a second factor, and a background process cannot read a text message.
+Run the login below once, and the watchdog takes over after that.
+
+    D:\Projects\dut-dlut-net-relink-windows\src\DutNetRelink.ps1 -CasLogin
 
 == Current status
 config          : C:\Users\你\AppData\Local\DutNetRelink\config.json
@@ -73,9 +82,12 @@ password        : stored (DPAPI CurrentUser)
 credentials     : decryptable for this identity
 interval        : 45 s
 interface       : (auto)
+CAS session     : (none)
 active IPv4     : 192.0.2.10
 internet        : online
 boot persistence: HKCU Run entry (no restart on crash)
+--- last log lines ---
+2026-09-28 16:32:25 [INFO ] watchdog started (pid 56208, interval 45s, user Dlut)
 
 uninstall with: powershell -ExecutionPolicy Bypass -File "...\uninstall.ps1"
 ```
@@ -130,7 +142,29 @@ Keep them? [Y/n]:
 3. 用 CAS 自己的算法 `strEnc(用户名+密码+lt, "1", "2", "3")` 把凭据加密成 `rsa`，连同 `ul`、`pl`、`sl`、`lt`、`execution`、`_eventId` 一起 POST。这个 DES 实现按 `refs/des.js` 逐位移植，并用 6 组黄金向量测住，中文密码也在覆盖范围内。
 4. CAS 返回 ticket，门户凭 ticket 放行，脚本再确认真能上网才算这次重连成功。
 
+另外，如果本机存着上次 `-CasLogin` 换来的 CAS 会话，第 1 步就带着它走：CAS 认这个 cookie 会直接发 ticket，上面 2、3 步整个跳过，连密码都不用解。会话过期或者被清了，才回到完整的重登流程。
+
 连续失败不会死磕：退避从 60 秒起、三倍递增，上限 30 分钟，免得把校园网账号撞锁。
+
+## 账号开了二次认证（短信验证码）怎么办
+
+大连理工的 CAS 给一部分账号强制开了二次认证：密码对了还不算，还要给绑定手机发一条短信验证码。门户 `http://172.20.30.2:8080/Self/dashboard` 里翻不到关它的地方，所以只能按这个流程走，分两步：
+
+**1. 一次人工登录，换一个长期会话。** 人在的时候跑一次 `-CasLogin`：它先显示图形验证码，你输完它就让 CAS 给绑定手机发短信，接着要短信验证码；成功后 CAS 的会话（`CASTGC` 等 cookie）用 DPAPI 加密存到 `%LOCALAPPDATA%\DutNetRelink\session.json`，跟密码一样只有你这台机器解得开。
+
+**2. 之后全自动。** 每次掉线，看门狗带着这个会话去 CAS，CAS 认这个 cookie 就直接发 ticket 放行，不必再输密码和验证码。会话还剩多少寿命，`-Status` 的 `CAS session` 一行会写出来；过期了再跑一次 `-CasLogin` 就是。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -CasLogin
+```
+
+图形验证码会直接画成字符贴在终端里，画不了就打开 `%LOCALAPPDATA%\DutNetRelink\captcha.png` 看。图形验证码输错会当场换一张新的重来；短信发不出来（图形码不对、一分钟内问太多次、账号当天短信次数用完了）它会原样把 CAS 的说法告诉你，不会一直重试。中途不想登，直接回车，干净退出，什么都不会改。想主动丢掉会话：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -ClearSession
+```
+
+手头不方便登录就别理它：后台碰到要二次认证的账号，会把重试间隔拉到最长（默认 30 分钟），不去撞 CAS，也绝不会自己偷偷发短信——它没有你的手机。
 
 ## 平时怎么用
 
@@ -139,6 +173,8 @@ Keep them? [Y/n]:
 ```powershell
 powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -Status
 ```
+
+其中 `CAS session` 一行看的是后台免密重连的底气：写着会话的保存时间和 cookie 数量，说明掉线后不用人管；写着 `(none)`，说明这个账号还卡在二次认证上，跑一次上面那节的 `-CasLogin` 就好。
 
 其余几条偶尔用得上：
 
@@ -149,13 +185,19 @@ powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -Once
 # 不管在不在线，强制登录一次
 powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -Login
 
+# 一次人工登录，把 CAS 换到的长期会话存下来（开了二次认证的账号必跑）
+powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -CasLogin
+
+# 丢掉保存的 CAS 会话，下次重连重新走一遍认证
+powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -ClearSession
+
 # 改学号密码（等价于重跑 install.ps1）
 powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -Configure
 
 # 卸载：注册表和计划任务都清掉，凭据和日志默认留着
 powershell -ExecutionPolicy Bypass -File uninstall.ps1
 
-# 卸载并连凭据、日志一起删
+# 卸载并连凭据、日志、CAS 会话一起删
 powershell -ExecutionPolicy Bypass -File uninstall.ps1 -RemoveConfig -RemoveLogs
 ```
 
@@ -203,7 +245,10 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object Com
 ## 排障
 
 - 日志写 `CAS says: Incorrect username and password`：密码错了，重跑 `install.ps1` 或 `-Configure` 改。
-- 日志写 `CAS wants a captcha` 或 `CAS refused the login without an error message`：CAS 要过人机校验，或者你的账号开了二次认证（密码对了还要给绑定手机发短信验证码）。用浏览器登录一次校园网把验证码过掉，脚本随后自己会恢复；如果是二次认证，脚本没法无人值守登录，得先去门户的安全设置里把它关掉。
+- 日志写 `CAS is asking for the SMS second factor; run "DutNetRelink.ps1 -CasLogin" once to renew the session`：账号开了二次认证，而后台收不了短信。按上面[账号开了二次认证（短信验证码）怎么办](#账号开了二次认证短信验证码怎么办)跑一次 `-CasLogin` 把会话换新，这行就不会再出现。
+- 日志写 `CAS wants a captcha` 或 `CAS refused the login without an error message`：CAS 要过人机校验。用浏览器登录一次校园网把图形验证码过掉，脚本随后自己会恢复；多次不行就先 `-ClearSession`，再跑一次 `-CasLogin`。
+- `-Status` 里 `CAS session` 是 `(none)`：后台还没有可复用的会话，重连会卡在二次认证上，跑一次 `-CasLogin` 即可。
+- `-CasLogin` 说短信没发出来：它会照抄 CAS 的原话，常见的是图形验证码不对、一分钟内问太多次、或者账号当天的短信次数用完了，等一会儿再试。
 - `-Status` 里 `credentials : NOT decryptable`：任务运行身份和密码加密作用域对不上，用你实际在用的那个 `-Mode` 重装一次。
 - 换了网线口或网卡：默认认默认路由那块网卡，也可以把网卡名写进 `InterfaceName`。
 - 想手工看门户到 CAS 的链路通不通：`powershell -ExecutionPolicy Bypass -File tools\diagnose_cas_page.ps1`，只读探测，不提交凭据。
@@ -226,7 +271,9 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object Com
 powershell -ExecutionPolicy Bypass -File tools\run_all_tests.ps1
 ```
 
-六个套件依次跑，全过则退出码 0：脚本语法与纯 ASCII 检查、DES 黄金向量、CAS 报错解析（离线，直接吃 `refs/` 里抓回来的真页面）、配置存储与 DPAPI 加解密、完整登录链路（用错凭据，预期被拒）、单实例互斥锁与日志落盘。这套测试是给开发用的，平时不用管。
+八个套件依次跑，全过则退出码 0：脚本语法与纯 ASCII 检查、DES 黄金向量、CAS 报错解析（离线，直接吃 `refs/` 里抓回来的真页面）、二次认证全流程（图形验证码、发短信、四轮重试，HTTP 全程 mock）、CAS 会话存取（DPAPI cookie jar、路径归一、坏文件容错）、配置存储与 DPAPI 加解密、完整登录链路（用错凭据，预期被拒）、单实例互斥锁与日志落盘。这套测试是给开发用的，平时不用管：二次认证和会话两个套件的 HTTP 全部是假的，不会碰真账号，也不会真发短信。
+
+在已经装好、看门狗正在跑的机器上，最后那个 `one cycle` 套件会自己跳过：它要独占单实例互斥锁，而看门狗正占着。跳过不是失败。想看它真跑，先把看门狗停掉再跑。
 
 ## 文件
 
@@ -237,13 +284,15 @@ src\DutNetRelink.ps1   看门狗主程序
 lib\CasAuth.psm1       门户挑战、CAS 表单、登录、在线探测
 lib\CasDes.psm1        CAS 的 strEnc / DES 实现（PowerShell 移植）
 lib\ConfigStore.psm1   配置读写与 DPAPI 凭据加解密
+lib\CasSession.psm1    CAS 会话（cookie jar）的加密存取
 tools\                 测试与诊断脚本
 refs\                  抓取的 CAS 页面与原始 JS，仅作比对参考
 ```
 
 ## 已知限制
 
-- 登录成功链路没法在这里替你验，需要真实账号密码。装完看一眼 `-Status` 和日志确认即可。
+- 一次人工 `-CasLogin` 的完整成功链路没法自动替你跑，它要有人输短信验证码。装完之后看一眼 `-Status` 和日志：账密正确的话 `CAS session` 会是 `(none)`，跑一次 `-CasLogin` 就有了。
+- 二次认证账号的免密重连全押在那个会话上。会话过期后必须有人再跑一次 `-CasLogin`，后台收不了短信；CAS 会话具体能活多久它自己没说，通常几天到几周。
 - 计划任务注册没做端到端验证：开发用的机器在策略上禁止当前身份注册计划任务，`Register-ScheduledTask` 和 `schtasks` 都是 `Access is denied`。`-Mode RunKey` 这条链路倒是完整跑通过：写注册表、后台隐藏进程常驻、`-Status` 认得出、卸载清得干净。
 - `-Mode RunKey` 只在你登录之后才启动，进程被杀也不会自动拉起。
 - 学校要是改了 CAS 表单字段或加密算法，脚本会失效；`refs/` 留了当时的页面和 JS 方便比对。
