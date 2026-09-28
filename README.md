@@ -1,10 +1,16 @@
-# 大理工校园网自动重连（研究生工位 Windows 版）
+# 大连理工大学校园网自动重连（研究生工位 Windows 版）
 
 大连理工大学研究生工位机用：Dr.COM 校园网门户加 CAS 统一身份认证，掉线之后自动重新登录。后台常驻、开机自启，装完基本不用管。
 
 - 只依赖 Windows 10 / 11 自带的 Windows PowerShell 5.1，不需要 .NET、Python 或任何第三方组件。
 - 密码用 Windows 自带的 DPAPI 加密后存在本机，永不明文落盘。
 - 只访问学校的门户和 CAS，不往任何第三方服务器发数据。
+
+**懒得自己敲命令，让 AI 帮你装**：把下面这句话连同本仓库目录一起丢给 AI 即可。
+
+```text
+帮我装一下这个仓库里的大连理工大学校园网自动重连：在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式；装完把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
+```
 
 For non-Chinese readers: open PowerShell in this folder, run `powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey`, then type your student ID and password. `-Status` prints the current state; `uninstall.ps1` removes everything.
 
