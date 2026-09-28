@@ -147,6 +147,18 @@ function Show-DlutCaptcha {
     if (-not $art) { Write-Host '（这个终端不支持把图片画成字符，直接打开上面的图片看）' }
 }
 
+function Read-DlutConsoleLine {
+    <#
+    Read-Host hands back $null once stdin is not a real console (a piped or
+    redirected run), and calling .Trim() on that throws. An empty answer is the
+    documented way to cancel, so collapse both cases into an empty string.
+    #>
+    param([string]$Prompt)
+    try { $line = Read-Host $Prompt } catch { return '' }
+    if ($null -eq $line) { return '' }
+    return ("$line").Trim()
+}
+
 function Request-DlutSecondFactor {
     <#
     Runs while the user watches: show the image code, have CAS text the dynamic code,
@@ -169,7 +181,7 @@ function Request-DlutSecondFactor {
     $imageCode = ''
     while (-not $imageCode) {
         Show-DlutCaptcha $Info.CaptchaPath
-        $typed = (Read-Host '图形验证码').Trim()
+        $typed = Read-DlutConsoleLine '图形验证码'
         if (-not $typed) { return @{ ImageCode = ''; SmsCode = '' } }
         $sent = & $Info.SendSms $typed
         if ($sent.Success) {
@@ -177,7 +189,7 @@ function Request-DlutSecondFactor {
             break
         }
         Write-Host ('没能发出短信: ' + $sent.Message + $(if ($sent.Code) { ' [' + $sent.Code + ']' } else { '' }))
-        $again = Read-Host '换一张图形验证码再试一次吗? [Y/n]'
+        $again = Read-DlutConsoleLine '换一张图形验证码再试一次吗? [Y/n]'
         if ($again -match '^[nN]') { return @{ ImageCode = ''; SmsCode = '' } }
         try {
             $base = if ($Info.CaptchaUrl) { $Info.CaptchaUrl.Split('?')[0] } else { '' }
@@ -190,7 +202,7 @@ function Request-DlutSecondFactor {
     }
 
     Write-Host ('短信已发到' + $Info.PhoneHint + '，通常几十秒内到')
-    $smsCode = (Read-Host '短信验证码').Trim()
+    $smsCode = Read-DlutConsoleLine '短信验证码'
     return @{ ImageCode = $imageCode; SmsCode = $smsCode }
 }
 
@@ -201,11 +213,25 @@ function Invoke-DlutCasLogin {
     #>
     param([object]$Config)
     Set-ConsoleUtf8
-    $plain = Unprotect-DlutPassword $Config
-    if (-not $plain) {
+    # The stored password is only readable by the account that saved it, so say
+    # which window this is instead of blaming the credentials.
+    $credential = Get-DlutPlainPassword $Config
+    if (-not $credential.Success) {
         Write-Host '密码读不出来，先跑 install.ps1 或 DutNetRelink.ps1 -Configure 重新存一次'
+        Write-Host ''
+        Write-Host ('配置文件    : ' + $script:ConfigFile + $(if (Test-Path -LiteralPath $script:ConfigFile) { ' (存在)' } else { ' (不存在，所以读到的是默认配置)' }))
+        Write-Host ('当前用户    : ' + $env:USERDOMAIN + '\' + $env:USERNAME)
+        Write-Host ('存进去的账号 : ' + $(if ($Config.Username) { $Config.Username + '，按 ' + $Config.CredentialScope + ' 作用域加密' } else { '(没有)' }))
+        Write-Host ('读不出的原因 : ' + $credential.Error)
+        Write-Host ''
+        if ($Config.CredentialScope -eq 'CurrentUser') {
+            Write-Host '密码是按“只有当初存它的那个 Windows 账户才能解开”的方式加密的。'
+            Write-Host '如果这个窗口是“以管理员身份运行”或者你换了个账户登录，就会读不出来。'
+            Write-Host '用当初跑 install.ps1 的那个账户，开一个普通（非管理员）窗口再跑一次就行。'
+        }
         return 4
     }
+    $plain = $credential.Password
     $ip = Get-PrimaryIPv4 $Config.InterfaceName
     if (-not $ip) {
         Write-Host '没找到可用的 IPv4 地址，先确认连上了校园网'
@@ -231,7 +257,7 @@ function Invoke-DlutCasLogin {
         Write-Host ('这次没成功: ' + $result.Message)
         if ($result.Message -like '*cancelled*' -or $result.Message -like '*prompt failed*') { return 6 }
         if ($round -lt 3) {
-            $more = Read-Host '再试一次吗? [Y/n]'
+            $more = Read-DlutConsoleLine '再试一次吗? [Y/n]'
             if ($more -match '^[nN]') { return 7 }
         }
     }

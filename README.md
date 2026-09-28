@@ -10,7 +10,7 @@
 **懒得自己敲命令，让 AI 帮你装**：把下面这句话连同本仓库目录一起丢给 AI 即可。
 
 ```text
-帮我装一下这个仓库里的大连理工大学校园网自动重连：在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式；装完把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
+帮我装一下这个仓库里的大连理工大学校园网自动重连。步骤：1) 在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式。2) 如果我的账号开了短信二次认证，再跑一次 src\DutNetRelink.ps1 -CasLogin 把长期 CAS 会话换下来，图形验证码和短信验证码我念给你。3) 最后把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
 ```
 
 For non-Chinese readers: open PowerShell in this folder, run `powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey`, then type your student ID and password. `-Status` prints the current state; `uninstall.ps1` removes everything.
@@ -150,7 +150,7 @@ Keep them? [Y/n]:
 
 大连理工的 CAS 给一部分账号强制开了二次认证：密码对了还不算，还要给绑定手机发一条短信验证码。门户 `http://172.20.30.2:8080/Self/dashboard` 里翻不到关它的地方，所以只能按这个流程走，分两步：
 
-**1. 一次人工登录，换一个长期会话。** 人在的时候跑一次 `-CasLogin`：它先显示图形验证码，你输完它就让 CAS 给绑定手机发短信，接着要短信验证码；成功后 CAS 的会话（`CASTGC` 等 cookie）用 DPAPI 加密存到 `%LOCALAPPDATA%\DutNetRelink\session.json`，跟密码一样只有你这台机器解得开。
+**1. 一次人工登录，换一个长期会话。** 人在的时候跑一次 `-CasLogin`：它先显示图形验证码，你输完它就让 CAS 给绑定手机发短信，接着要短信验证码；短信对了之后，CAS 有时还会再弹一页「信任设备」，问要不要把这台机器记成可信设备，脚本会自动勾上「信任」并继续，不用你管。成功后 CAS 的会话（`CASTGC` 等 cookie）用 DPAPI 加密存到 `%LOCALAPPDATA%\DutNetRelink\session.json`，跟密码一样只有你这台机器解得开。
 
 **2. 之后全自动。** 每次掉线，看门狗带着这个会话去 CAS，CAS 认这个 cookie 就直接发 ticket 放行，不必再输密码和验证码。会话还剩多少寿命，`-Status` 的 `CAS session` 一行会写出来；过期了再跑一次 `-CasLogin` 就是。
 
@@ -160,11 +160,27 @@ powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -CasLogin
 
 图形验证码会直接画成字符贴在终端里，画不了就打开 `%LOCALAPPDATA%\DutNetRelink\captcha.png` 看。图形验证码输错会当场换一张新的重来；短信发不出来（图形码不对、一分钟内问太多次、账号当天短信次数用完了）它会原样把 CAS 的说法告诉你，不会一直重试。中途不想登，直接回车，干净退出，什么都不会改。想主动丢掉会话：
 
+短信验证码本身还是得你亲手输一次——后台进程收不了短信。这一步只做一次：换上来的会话能顶很久，「信任设备」那页也由脚本自动确认，之后掉线重连全程无人值守。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File src\DutNetRelink.ps1 -ClearSession
 ```
 
 手头不方便登录就别理它：后台碰到要二次认证的账号，会把重试间隔拉到最长（默认 30 分钟），不去撞 CAS，也绝不会自己偷偷发短信——它没有你的手机。
+
+### 远程 / 无人值守场景：`tools\assisted_mfa_login.ps1`
+
+`-CasLogin` 要人在窗口前敲字（图形验证码 + 短信码）。如果你是通过远程协助或不方便在终端交互，用这个变体：它不开控制台，把两个答案改成文件交接，远程那头（或帮你操作这台机器的人）把答案写进文件就行。
+
+```powershell
+# 后台拉起，答案文件在 %TEMP%\DutNetRelinkMfa
+Start-Process powershell -WindowStyle Hidden -ArgumentList @(
+    '-NoProfile','-ExecutionPolicy','Bypass','-File',
+    'D:\Projects\dut-dlut-net-relink-windows\tools\assisted_mfa_login.ps1'
+)
+```
+
+工作目录里会依次出现：`status.txt`（进度，一行一个时间戳）、`captcha.png`（图形验证码，自己看）、`image_code.txt`（把图形码写进去）、`sms_code.txt`（把短信码写进去）、`result.txt`（最终结果，只写一次）。两个答案属于同一次 CAS 会话，所以进程要一直活着等；`status.txt` 里会告诉你轮到输哪一个。图形码写错会换一张新图重来，短信码写错会写在 `status.txt` 里让你再写一次。会话存进的是看门狗读的同一个 `session.json`（DPAPI，跟运行它的那个账号绑定）。普通用户不需要这个，直接 `-CasLogin` 即可。
 
 ## 平时怎么用
 
@@ -271,7 +287,9 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object Com
 powershell -ExecutionPolicy Bypass -File tools\run_all_tests.ps1
 ```
 
-八个套件依次跑，全过则退出码 0：脚本语法与纯 ASCII 检查、DES 黄金向量、CAS 报错解析（离线，直接吃 `refs/` 里抓回来的真页面）、二次认证全流程（图形验证码、发短信、四轮重试，HTTP 全程 mock）、CAS 会话存取（DPAPI cookie jar、路径归一、坏文件容错）、配置存储与 DPAPI 加解密、完整登录链路（用错凭据，预期被拒）、单实例互斥锁与日志落盘。这套测试是给开发用的，平时不用管：二次认证和会话两个套件的 HTTP 全部是假的，不会碰真账号，也不会真发短信。
+八个套件依次跑，全过则退出码 0：脚本语法与纯 ASCII 检查、DES 黄金向量、CAS 报错解析（离线，直接吃 `refs/` 里抓回来的真页面）、二次认证全流程（图形验证码、发短信、四轮重试、「信任设备」页自动确认，HTTP 全程 mock）、CAS 会话存取（DPAPI cookie jar、路径归一、坏文件容错）、配置存储与 DPAPI 加解密、完整登录链路（用错凭据，预期被拒）、单实例互斥锁与日志落盘。这套测试是给开发用的，平时不用管：二次认证和会话两个套件的 HTTP 全部是假的，不会碰真账号，也不会真发短信。
+
+「信任设备」那页真机抓样子太随机，`refs/cas_trust_device_page.html` 是按 CAS 实际页面结构做的等价样本，二次认证套件拿它验证识别、`check_user_device=true` 提交和整链路走通。
 
 在已经装好、看门狗正在跑的机器上，最后那个 `one cycle` 套件会自己跳过：它要独占单实例互斥锁，而看门狗正占着。跳过不是失败。想看它真跑，先把看门狗停掉再跑。
 

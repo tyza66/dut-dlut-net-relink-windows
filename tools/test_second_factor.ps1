@@ -213,6 +213,71 @@ try {
     $null = $container.Add((New-Object System.Net.Cookie('recheck_mobile_error_info', 'img_code_error', '/cas', 'sso.dlut.edu.cn')))
     $denied = Invoke-DzSms $smsSession
     Check 'SmsErrorMessage' (-not $denied.Success -and $denied.Message -eq 'the image code was wrong') $denied.Message
+
+    # ------------------------------------------------------------- trust device page
+    # After a correct SMS code CAS sometimes shows the "trust this device" page once
+    # more before it issues the ticket. It is recognised by the hidden
+    # check_user_device field plus the visible wording.
+    $trustHtml = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot 'refs\cas_trust_device_page.html')
+    $trust = Get-DlutTrustDeviceInfo -Html $trustHtml -BaseUrl 'https://sso.dlut.edu.cn'
+    Check 'TrustPageDetected' ($trust.Required) ('Required=' + $trust.Required)
+    Check 'TrustPageActionUrl' ($trust.ActionUrl -like 'https://sso.dlut.edu.cn/cas/login?service=*') $trust.ActionUrl
+    Check 'TrustPageExecution' ($trust.Execution -eq 'e5s9') $trust.Execution
+    Check 'TrustPageRelayState' ($trust.RelayState -eq 'e5s9') $trust.RelayState
+
+    Check 'TrustNotOnMfa' (-not (Get-DlutTrustDeviceInfo -Html $mfaHtml -BaseUrl 'https://sso.dlut.edu.cn').Required) 'mfa page'
+    Check 'TrustNotOnLogin' (-not (Get-DlutTrustDeviceInfo -Html $cleanHtml -BaseUrl 'https://sso.dlut.edu.cn').Required) 'login page'
+    Check 'TrustNotOnEmpty' (-not (Get-DlutTrustDeviceInfo -Html '').Required) 'empty'
+    # The wording alone is not enough; the marker field has to be there too.
+    Check 'TrustNeedsMarker' (-not (Get-DlutTrustDeviceInfo -Html '<html>信任设备</html>' -BaseUrl 'https://sso.dlut.edu.cn').Required) 'no marker'
+
+    # The confirm POST has to carry check_user_device=true plus the page's own
+    # execution and RelayState.
+    $trustBody = & (Get-Module CasAuth) {
+        param($Info)
+        function Send-CasRequest { param($S, $U, $M, $C) $global:DZTrustBody = $C; return [pscustomobject]@{ Status = 200; Location = ''; Url = $U; Body = '' } }
+        $null = Submit-DlutTrustDevice -Session @{} -PostUrl 'https://sso.dlut.edu.cn/cas/login?service=x' -Info $Info -TrustDevice $true
+        return $global:DZTrustBody
+    } $trust
+    Check 'TrustSubmitMarker' ($trustBody -match 'check_user_device=true') $trustBody
+    Check 'TrustSubmitExecution' ($trustBody -match 'execution=e5s9') $trustBody
+    Check 'TrustSubmitRelayState' ($trustBody -match 'RelayState=e5s9') $trustBody
+    Check 'TrustSubmitEvent' ($trustBody -match '_eventId=submit') $trustBody
+
+    # ----------------------------------------------------------- trust device in flow
+    # The SMS POST comes back as the trust page, then the confirm POST finally yields
+    # the ticket. The flow has to follow that detour and still store the session the
+    # watchdog will reuse.
+    $global:DZTrustPosts = 0
+    $global:DZTrustHtml = $trustHtml
+    $global:DZTrustRequest = {
+        param($Session, $Url, $Method, $Content)
+        if ($Method -eq 'POST') {
+            $global:DZTrustPosts++
+            if ($global:DZTrustPosts -eq 1) {
+                return [pscustomobject]@{ Status = 200; Location = ''; Url = $Url; Body = $global:DZTrustHtml }
+            }
+            return [pscustomobject]@{ Status = 302; Location = '/cas/serviceValidate?ticket=ST-77'; Url = $Url; Body = '' }
+        }
+        if ($Url -like '*/cas/code*') {
+            return [pscustomobject]@{ Status = 200; Location = ''; Url = $Url; Body = ''; Bytes = [byte[]](1..16) }
+        }
+        return [pscustomobject]@{ Status = 200; Location = ''; Url = $Url; Body = 'redeemed' }
+    }
+    $trustSessionPath = Join-Path $tmp 'trust-session.json'
+    $trustSession = @{ Handler = @{ CookieContainer = (New-Object 'System.Net.CookieContainer') }; Client = $null }
+    $null = $trustSession.Handler.CookieContainer.Add((New-Object System.Net.Cookie('CASTGC', 'TGT-77', '/cas', 'sso.dlut.edu.cn')))
+    $trustPage = [pscustomobject]@{ Url = 'https://sso.dlut.edu.cn/cas/login?service=x'; Status = 200; Body = $mfaHtml }
+    $trustResult = (& (Get-Module CasAuth) {
+        param($Session, $Page, $Info, $Prompt, $SessionPath)
+        function Send-CasRequest { param($S, $U, $M, $C) return (& $global:DZTrustRequest $S $U $M $C) }
+        function Send-CasRequestBytes { param($S, $U, $M, $C) return (& $global:DZTrustRequest $S $U $M $C) }
+        function Get-CasWorkDir { return $global:DZWorkDir }
+        return (Invoke-DlutSecondFactorLogin -Session $Session -Page $Page -Info $Info -PromptSecondFactor $Prompt -SessionPath $SessionPath)
+    } $trustSession $trustPage $info $prompt $trustSessionPath)
+    Check 'TrustFlowSucceeds' ($trustResult.Success) $trustResult.Message
+    Check 'TrustFlowPosts' ($global:DZTrustPosts -eq 2) ('posts ' + $global:DZTrustPosts)
+    Check 'TrustFlowSessionStored' ($trustResult.SessionSaved -and (Test-Path -LiteralPath $trustSessionPath)) ('SessionSaved=' + $trustResult.SessionSaved)
 } finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Variable -Name DZMfaHtml -Scope Global -ErrorAction SilentlyContinue
@@ -220,6 +285,10 @@ try {
     Remove-Variable -Name DZPrompts -Scope Global -ErrorAction SilentlyContinue
     Remove-Variable -Name DZRequest -Scope Global -ErrorAction SilentlyContinue
     Remove-Variable -Name DZWorkDir -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name DZTrustBody -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name DZTrustHtml -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name DZTrustRequest -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name DZTrustPosts -Scope Global -ErrorAction SilentlyContinue
 }
 
 Write-Host ''

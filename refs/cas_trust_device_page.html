@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8"/>
+	<title>统一身份认证</title>
+	<style>
+		body { font-family: "Microsoft YaHei", sans-serif; }
+		.login-btn { display: inline-block; padding: 8px 24px; background: #1c6fd6; color: #fff; }
+	</style>
+</head>
+
+<body class="fluid_container" id="container_bg" style="height: 100%;">
+<form id="loginForm" action="/cas/login?service=http://172.20.30.2:8080/Self/sso_login?type=null&amp;wlan_user_ip=192.0.2.10&amp;wlan_user_ipv6=null&amp;wlan_ac_ip=REDACTED" method="post">
+	<div class="login_conatiner" id="login_container_box">
+		<div class="login-container-block">
+			<div class="login-part">
+				<div class="login-tab-row">
+					<a class="login-tab-item active" id="password_login">信任设备</a>
+				</div>
+
+				<span class="login_box_title_notice">信任设备后，后续登录将不再需要二次认证。</span>
+				<span class="login_box_title_notice script_red" style="display:none;" id="errormsg"></span>
+
+				<div class="login-input-row">
+					<input type="checkbox" id="check_user_device" name="check_user_device" value="true" checked="checked"/>
+					<label for="check_user_device">信任此设备</label>
+				</div>
+
+				<div class="login-btn-row">
+					<a class="login-btn" id="index_login_btn">确定</a>
+				</div>
+
+				<div class="details-info-row">
+					<span>请勿在公共电脑上勾选“信任设备”。</span>
+				</div>
+			</div>
+		</div>
+		<input type="hidden" name="RelayState" value="e5s9" />
+		<input type="hidden" name="execution" value="e5s9" />
+		<input type="hidden" id="_eventId" name="_eventId" value="submit"/>
+	</div>
+</form>
+<footer id="footer">
+	<div class="login_footer">
+		<p class="left"><span>版权所有：大连理工大学</span></p>
+	</div>
+</footer>
+</body>
+</html>

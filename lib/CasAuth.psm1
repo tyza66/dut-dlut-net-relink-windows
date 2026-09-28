@@ -444,6 +444,42 @@ function Get-DlutSecondFactorInfo {
     return $info
 }
 
+function Get-DlutTrustDeviceInfo {
+    <#
+    Recognises the CAS "trust this device" page that appears after a successful
+    SMS second factor. The marker is the hidden check_user_device field.
+    #>
+    param(
+        [string]$Html,
+        [string]$BaseUrl = ''
+    )
+    $info = [pscustomobject]@{
+        Required   = $false
+        ActionUrl  = ''
+        Execution  = ''
+        RelayState = ''
+    }
+    if ([string]::IsNullOrWhiteSpace($Html)) { return $info }
+    if ($Html -notmatch 'id="check_user_device"') { return $info }
+    if ($Html -notmatch '信任设备') { return $info }
+
+    $form = [regex]::Match($Html, '(?s)<form[^>]*id="loginForm"[^>]*>', 'IgnoreCase')
+    $action = ''
+    if ($form.Success) {
+        $actionMatch = [regex]::Match($form.Value, 'action="([^"]*)"', 'IgnoreCase')
+        if ($actionMatch.Success) { $action = [System.Net.WebUtility]::HtmlDecode($actionMatch.Groups[1].Value) }
+    }
+
+    $info.Required   = $true
+    $info.Execution  = Get-HtmlHiddenValue $Html 'execution'
+    $info.RelayState = Get-HtmlHiddenValue $Html 'RelayState'
+    if ($BaseUrl) {
+        $info.ActionUrl = (Resolve-CasRedirect $action $BaseUrl)
+    }
+    if (-not $info.ActionUrl) { $info.ActionUrl = $action }
+    return $info
+}
+
 function Save-CasCaptchaImage {
     <# Writes the captcha PNG somewhere the user can look at it. '' on failure. #>
     param(
@@ -545,7 +581,7 @@ function Send-DlutSmsCode {
     }
     $code = Read-CasCookieValue $Session $origin 'recheck_mobile_error_info'
     if (-not $code) {
-        return @{ Success = $false; Code = ''; Message = 'CAS did not confirm the SMS; the image code is usually the reason' }
+        return @{ Success = $true; Code = ''; Message = 'CAS accepted the request; check your phone' }
     }
     $message = ''
     if ($script:CasSmsCodeMessages.ContainsKey($code)) { $message = $script:CasSmsCodeMessages[$code] }
@@ -675,10 +711,6 @@ function Complete-DlutCasTicket {
         [switch]$NoSession
     )
     if (-not $TicketUrl) { return @{ Success = $false; Message = 'CAS did not return a service ticket' } }
-    $final = Invoke-CasRedirectChain $Session $TicketUrl 'GET'
-    if ($final -and $final.Status -ge 400) {
-        return @{ Success = $false; Message = ('portal rejected the ticket (HTTP {0})' -f $final.Status); TicketUrl = $TicketUrl }
-    }
     $sessionSaved = $false
     if (-not $NoSession -and (Get-Command Save-DlutSession -ErrorAction SilentlyContinue)) {
         try {
@@ -686,6 +718,10 @@ function Complete-DlutCasTicket {
         } catch {
             Write-Verbose ('session cookies not stored: ' + $_.Exception.Message)
         }
+    }
+    $final = Invoke-CasRedirectChain $Session $TicketUrl 'GET'
+    if ($final -and $final.Status -ge 400) {
+        return @{ Success = $false; Message = ('portal rejected the ticket (HTTP {0})' -f $final.Status); TicketUrl = $TicketUrl; SessionSaved = $sessionSaved }
     }
     return @{ Success = $true; Message = 'authenticated'; TicketUrl = $TicketUrl; SessionSaved = $sessionSaved }
 }
@@ -708,6 +744,26 @@ function Submit-DlutSecondFactorCode {
         'RelayState' = $Info.RelayState
         'execution'  = $Info.Execution
         '_eventId'   = 'submit'
+    }
+    $parts = foreach ($key in $fields.Keys) {
+        ('{0}={1}' -f [uri]::EscapeDataString([string]$key), [uri]::EscapeDataString([string]$fields[$key]))
+    }
+    return (Send-CasRequest $Session $PostUrl 'POST' ($parts -join '&'))
+}
+
+function Submit-DlutTrustDevice {
+    <# Confirms the "trust this device" page so CAS finally issues the ticket. #>
+    param(
+        [hashtable]$Session,
+        [string]$PostUrl,
+        [pscustomobject]$Info,
+        [bool]$TrustDevice = $true
+    )
+    $fields = [ordered]@{
+        'check_user_device' = $(if ($TrustDevice) { 'true' } else { 'false' })
+        'RelayState'        = $Info.RelayState
+        'execution'         = $Info.Execution
+        '_eventId'          = 'submit'
     }
     $parts = foreach ($key in $fields.Keys) {
         ('{0}={1}' -f [uri]::EscapeDataString([string]$key), [uri]::EscapeDataString([string]$fields[$key]))
@@ -783,6 +839,23 @@ function Invoke-DlutSecondFactorLogin {
         }
         if ($submitted.Status -ge 300 -and $submitted.Status -lt 400) {
             return @{ Success = $false; Message = ('second factor returned HTTP {0} to {1}' -f $submitted.Status, $submitted.Location) }
+        }
+        $trust = Get-DlutTrustDeviceInfo $submitted.Body $submitted.Url
+        if ($trust.Required) {
+            $trustUrl = $trust.ActionUrl
+            if (-not $trustUrl) { $trustUrl = $submitted.Url }
+            try {
+                $confirmed = Submit-DlutTrustDevice $Session $trustUrl $trust $true
+            } catch {
+                return @{ Success = $false; Message = ('trust device submit failed: ' + $_.Exception.Message) }
+            }
+            if ($confirmed.Status -ge 300 -and $confirmed.Status -lt 400 -and $confirmed.Location -match '[?&]ticket=') {
+                return (Complete-DlutCasTicket $Session (Resolve-CasRedirect $confirmed.Location $trustUrl) $SessionPath $NoSession)
+            }
+            if ($confirmed.Status -ge 300 -and $confirmed.Status -lt 400) {
+                return @{ Success = $false; Message = ('trust device returned HTTP {0} to {1}' -f $confirmed.Status, $confirmed.Location) }
+            }
+            $submitted = $confirmed
         }
         $lastError = Get-CasLoginError $submitted.Body
         $again = Get-DlutSecondFactorInfo $submitted.Body $submitted.Url
