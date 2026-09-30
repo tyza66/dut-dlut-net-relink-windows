@@ -7,12 +7,12 @@
 - 只访问学校的门户和 CAS，不往任何第三方服务器发数据。
 - 账号要是开了短信二次认证：一次人工登录换一个长期 CAS 会话，之后掉线重连全自动，不用再掏手机。
 
-**在哪个校区验证过**：这套东西是在**大连理工大学开发区校区**的研究生工位机上跑通的。主校区（凌水校区）是另一套接入点，门户地址和 CAS 回调可能有差异，那边**没有验证过**；主校区的同学装完请看一眼日志，卡在哪一步日志里写得很清楚。
+**在哪个校区验证过**：这套东西是在**大连理工大学开发区校区**的研究生工位机上跑通的。主校区（凌水校区）能不能直接套用**不确定**，没在那边的机器上试过；主校区的同学装完请看一眼日志，卡在哪一步日志里写得很清楚。
 
-**懒得自己敲命令，让 AI 帮你装**：把下面这句话连同本仓库目录一起丢给 AI 即可。
+**懒得自己敲命令，让 AI 帮你装**：仓库在 [github.com/tyza66/dut-dlut-net-relink-windows](https://github.com/tyza66/dut-dlut-net-relink-windows)，先 clone 下来。把下面这句话连同仓库本地路径一起丢给 AI 即可：
 
 ```text
-帮我装一下这个仓库里的大连理工大学校园网自动重连。步骤：1) 在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式。2) 如果我的账号开了短信二次认证，再跑一次 src\DutNetRelink.ps1 -CasLogin 把长期 CAS 会话换下来，图形验证码和短信验证码我念给你。3) 最后把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
+帮我装一下大连理工大学校园网自动重连，仓库地址 https://github.com/tyza66/dut-dlut-net-relink-windows，先把它 clone 下来。步骤：1) 在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式。2) 如果我的账号开了短信二次认证，再跑一次 src\DutNetRelink.ps1 -CasLogin 把长期 CAS 会话换下来，图形验证码和短信验证码我念给你。3) 最后把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
 ```
 
 For non-Chinese readers: open PowerShell in this folder, run `powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey`, then type your student ID and password. `-Status` prints the current state; `uninstall.ps1` removes everything.
@@ -311,7 +311,7 @@ refs\                  抓取的 CAS 页面与原始 JS，仅作比对参考
 
 ## 已知限制
 
-- 只在**大连理工大学开发区校区**的研究生工位机上验证过。主校区（凌水校区）是另一套接入点，门户 `172.20.30.2:8080` 和 CAS 回调不一定是同一套，那边没试过。
+- 只在**大连理工大学开发区校区**的研究生工位机上验证过。主校区（凌水校区）能不能直接套用不确定，那边的机器没试过。
 - 一次人工 `-CasLogin` 的完整成功链路没法自动替你跑，它要有人输短信验证码。装完之后看一眼 `-Status` 和日志：账密正确的话 `CAS session` 会是 `(none)`，跑一次 `-CasLogin` 就有了。
 - 二次认证账号的免密重连全押在那个会话上。会话过期后必须有人再跑一次 `-CasLogin`，后台收不了短信；CAS 会话具体能活多久它自己没说，通常几天到几周。
 - 计划任务注册没做端到端验证：开发用的机器在策略上禁止当前身份注册计划任务，`Register-ScheduledTask` 和 `schtasks` 都是 `Access is denied`。`-Mode RunKey` 这条链路倒是完整跑通过：写注册表、后台隐藏进程常驻、`-Status` 认得出、卸载清得干净。
