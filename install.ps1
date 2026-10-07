@@ -26,6 +26,16 @@ param(
 
     [string]$Interface = '',
 
+    [switch]$MonitorRemoteApps,
+
+    [switch]$DisableRemoteAppWatch,
+
+    [string]$UuRemotePath = '',
+
+    [string]$ToDeskPath = '',
+
+    [int]$RemoteAppRestartCooldown = -1,
+
     [switch]$NoValidate,
 
     [switch]$NoStart,
@@ -40,7 +50,7 @@ $script:RepoRoot = if ($RepoRoot) { $RepoRoot } else { $PSScriptRoot }
 $script:ScriptPath = Join-Path $script:RepoRoot 'src\DutNetRelink.ps1'
 $libPath = Join-Path $script:RepoRoot 'lib'
 
-foreach ($module in @('CasDes.psm1', 'CasAuth.psm1', 'ConfigStore.psm1', 'CasSession.psm1')) {
+foreach ($module in @('CasDes.psm1', 'CasAuth.psm1', 'ConfigStore.psm1', 'CasSession.psm1', 'RemoteAppWatch.psm1')) {
     Import-Module (Join-Path $libPath $module) -Force -DisableNameChecking
 }
 
@@ -91,6 +101,9 @@ Write-Host 'DutNetRelink - DLUT campus network auto reconnect'
 Write-Host ('repo: ' + $script:RepoRoot)
 
 if (-not (Test-Path -LiteralPath $script:ScriptPath)) { throw ('watchdog script not found: ' + $script:ScriptPath) }
+if ($MonitorRemoteApps -and $DisableRemoteAppWatch) {
+    throw 'use either -MonitorRemoteApps or -DisableRemoteAppWatch, not both'
+}
 
 $scope = 'CurrentUser'
 $userId = ("$env:USERDOMAIN\$env:USERNAME")
@@ -209,6 +222,14 @@ if ($username) { $setParams['Username'] = $username }
 if ($plainPassword) { $setParams['Password'] = $plainPassword }
 if ($Interval -gt 0) { $setParams['IntervalSeconds'] = $Interval }
 if ($PSBoundParameters.ContainsKey('Interface')) { $setParams['InterfaceName'] = $Interface }
+if ($PSBoundParameters.ContainsKey('MonitorRemoteApps')) {
+    $setParams['MonitorRemoteApps'] = [bool]$MonitorRemoteApps
+} elseif ($DisableRemoteAppWatch) {
+    $setParams['MonitorRemoteApps'] = $false
+}
+if ($PSBoundParameters.ContainsKey('UuRemotePath')) { $setParams['UuRemotePath'] = $UuRemotePath }
+if ($PSBoundParameters.ContainsKey('ToDeskPath')) { $setParams['ToDeskPath'] = $ToDeskPath }
+if ($RemoteAppRestartCooldown -ge 0) { $setParams['RemoteAppRestartCooldownSeconds'] = $RemoteAppRestartCooldown }
 
 $null = Set-DlutConfig @setParams
 $config = Read-DlutConfig $configPath
@@ -217,6 +238,21 @@ if (-not $credential.Ok) { throw ('the saved config is not decryptable: ' + $cre
 Write-Host ('config: ' + $configPath)
 Write-Host ('user  : ' + $config.Username + '   password scope: ' + $config.CredentialScope)
 Write-Host ('interval: ' + $config.IntervalSeconds + 's   interface: ' + $(if ($config.InterfaceName) { $config.InterfaceName } else { '(auto)' }))
+Write-Host ('remote apps: ' + $(if ($config.MonitorRemoteApps) { 'monitor UU remote + ToDesk, restart after a crash' } else { 'disabled' }))
+if ($config.MonitorRemoteApps) {
+    $remoteDefinitions = @(Get-DlutRemoteAppDefinitions -UuRemotePath $config.UuRemotePath -ToDeskPath $config.ToDeskPath)
+    foreach ($remote in $remoteDefinitions) {
+        $resolved = Resolve-DlutRemoteAppExecutable $remote
+        if ($resolved) {
+            Write-Host ('  ' + $remote.Name + ': ' + $resolved)
+        } else {
+            Write-Warning ($remote.Name + ' executable was not found; set its path with -UuRemotePath or -ToDeskPath')
+        }
+    }
+    if ($scope -eq 'LocalMachine') {
+        Write-Warning 'Remote app keepalive cannot launch normal desktop apps while the watchdog runs as SYSTEM. Use -Mode Logon or -Mode RunKey for this option.'
+    }
+}
 
 $host64 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $commandLine = '"' + $host64 + '" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script:ScriptPath + '"'

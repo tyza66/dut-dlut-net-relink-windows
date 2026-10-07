@@ -14,6 +14,7 @@ $tests = @(
     @{ Name = 'second factor'; File = 'test_second_factor.ps1' },
     @{ Name = 'session store'; File = 'test_session.ps1' },
     @{ Name = 'config store'; File = 'test_config.ps1' },
+    @{ Name = 'remote app watch'; File = 'test_remote_app_watch.ps1' },
     @{ Name = 'login flow';   File = 'test_flow.ps1' },
     @{ Name = 'one cycle';    File = 'selftest_once.ps1' }
 )

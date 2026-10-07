@@ -12,7 +12,7 @@
 **懒得自己敲命令，让 AI 帮你装**：仓库在 [github.com/tyza66/dut-dlut-net-relink-windows](https://github.com/tyza66/dut-dlut-net-relink-windows)，先 clone 下来。把下面这句话连同仓库本地路径一起丢给 AI 即可：
 
 ```text
-帮我装一下大连理工大学校园网自动重连，仓库地址 https://github.com/tyza66/dut-dlut-net-relink-windows，先把它 clone 下来。步骤：1) 在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式。2) 如果我的账号开了短信二次认证，再跑一次 src\DutNetRelink.ps1 -CasLogin 把长期 CAS 会话换下来，图形验证码和短信验证码我念给你。3) 最后把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
+帮我装一下大连理工大学校园网自动重连，仓库地址 https://github.com/tyza66/dut-dlut-net-relink-windows，先把它 clone 下来。步骤：1) 在仓库根目录跑 powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey，学号和密码我发给你；如果这台机器允许建计划任务，就改用默认模式；如果还要监控 UU 远程和 ToDesk，命令追加 -MonitorRemoteApps。2) 如果我的账号开了短信二次认证，再跑一次 src\DutNetRelink.ps1 -CasLogin 把长期 CAS 会话换下来，图形验证码和短信验证码我念给你。3) 最后把 src\DutNetRelink.ps1 -Status 的输出给我看一眼。
 ```
 
 For non-Chinese readers: open PowerShell in this folder, run `powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey`, then type your student ID and password. `-Status` prints the current state; `uninstall.ps1` removes everything.
@@ -62,6 +62,7 @@ keeping them; pass -Username / -Password to replace them
 config: C:\Users\你\AppData\Local\DutNetRelink\config.json
 user  : 22019999   password scope: CurrentUser
 interval: 45s   interface: (auto)
+remote apps: disabled
 
 == Registering the HKCU Run entry
 HKCU\Software\Microsoft\Windows\CurrentVersion\Run
@@ -87,6 +88,7 @@ interface       : (auto)
 CAS session     : (none)
 active IPv4     : 192.0.2.10
 internet        : online
+remote apps     : disabled (UU remote + ToDesk)
 boot persistence: HKCU Run entry (no restart on crash)
 --- last log lines ---
 2026-09-28 16:32:25 [INFO ] watchdog started (pid 56208, interval 45s, user Dlut)
@@ -123,6 +125,39 @@ Keep them? [Y/n]:
 - 安装后**这个仓库目录就别挪位置**：启动项里写的是 `src\DutNetRelink.ps1` 的绝对路径。真要挪，先卸载再装。
 - 注册表启动项只在你登录之后才启动，进程被杀也没人拉起；要开机未登录就跑，只能走 `-Mode Startup`。
 
+## 可选：UU 远程 / ToDesk 崩溃后自动启动
+
+这个功能默认**关闭**。开启后，看门狗每一轮除了检查校园网，还会看住下面两个进程；只要进程不在，就按配置的路径把它重新拉起来：
+
+| 软件 | 认的进程名 | 留空时自动尝试的常见路径 |
+| --- | --- | --- |
+| UU 远程 | `GameViewer.exe` | `C:\Program Files\Netease\GameViewer\GameViewer.exe`，以及安装目录下的 `bin\GameViewer.exe` |
+| ToDesk | `ToDesk.exe` | `C:\Program Files\ToDesk\ToDesk.exe` |
+
+装的时候加开关即可，软件已经装在默认位置的话不用再填路径：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey -MonitorRemoteApps
+```
+
+装在别的目录就顺手把 exe 路径填上：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey -MonitorRemoteApps `
+  -UuRemotePath "D:\Apps\GameViewer\GameViewer.exe" `
+  -ToDeskPath "D:\Apps\ToDesk\ToDesk.exe"
+```
+
+想改重启冷却时间，用 `-RemoteAppRestartCooldown 120`，单位是秒，默认 60。关闭监控用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey -DisableRemoteAppWatch
+```
+
+开启后 `-Status` 会多一行 `remote apps`，分别显示两个进程在不在跑；日志里会出现 `remote app start requested`、`remote app is running again`，路径没找对或启动失败会写 `WARN`，不会影响校园网重连主流程。这个功能只管“进程没了就拉起”，不管软件安装、登录、免密配置，也不绕过软件自身的限制。
+
+注意：`-Mode Startup` 以 SYSTEM 身份运行，不能把 UU 远程 / ToDesk 正常拉进当前桌面会话，所以脚本会检测到并拒绝启动，只在日志里说明。要用保活，请用 `-Mode Logon` 或 `-Mode RunKey`。
+
 ### install.ps1 参数
 
 | 参数 | 说明 |
@@ -132,6 +167,11 @@ Keep them? [Y/n]:
 | `-Password (Read-Host -AsSecureString)` | 密码，不给就交互问 |
 | `-Interval 30` | 检测间隔秒数，5 到 3600，默认 45 |
 | `-Interface 以太网2` | 指定网卡名，不给就自动挑默认路由那块 |
+| `-MonitorRemoteApps` | 开启 UU 远程 / ToDesk 进程保活，默认关闭 |
+| `-DisableRemoteAppWatch` | 关闭进程保活（重跑安装时可用来覆盖旧配置） |
+| `-UuRemotePath <exe>` | 指定 UU 远程的启动程序；不填则查常见安装路径 |
+| `-ToDeskPath <exe>` | 指定 ToDesk 的启动程序；不填则查常见安装路径 |
+| `-RemoteAppRestartCooldown 60` | 启动尝试的冷却秒数，15 到 3600，默认 60 |
 | `-NoValidate` | 跳过安装时那次真登录校验 |
 | `-NoStart` | 只注册开机启动项，不立即启动 |
 
@@ -253,8 +293,12 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object Com
 | `MaxAttemptsPerCycle` | 3 | 一次掉线里最多尝试几次登录 |
 | `MaxBackoffSeconds` | 1800 | 连续失败时退避的上限，0 表示不退避 |
 | `LogRetentionDays` | 14 | 日志保留天数 |
+| `MonitorRemoteApps` | `false` | 是否监控 UU 远程 / ToDesk，默认关闭 |
+| `UuRemotePath` | 空 | UU 远程的 `GameViewer.exe` 路径，留空自动查常见位置 |
+| `ToDeskPath` | 空 | ToDesk 的 `ToDesk.exe` 路径，留空自动查常见位置 |
+| `RemoteAppRestartCooldownSeconds` | 60 | 进程启动尝试的冷却秒数，15 到 3600 |
 
-后四个字段在 install.ps1 里没有对应参数，直接改这个 json 即可，看门狗下次循环生效。
+`MaxAttemptsPerCycle`、`MaxBackoffSeconds`、`LogRetentionDays` 等高级字段在 install.ps1 里没有对应参数，直接改这个 json 即可；改了配置后重启看门狗，或者重跑一次 install.ps1。
 
 ## 日志
 
@@ -289,7 +333,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object Com
 powershell -ExecutionPolicy Bypass -File tools\run_all_tests.ps1
 ```
 
-八个套件依次跑，全过则退出码 0：脚本语法与纯 ASCII 检查、DES 黄金向量、CAS 报错解析（离线，直接吃 `refs/` 里抓回来的真页面）、二次认证全流程（图形验证码、发短信、四轮重试、「信任设备」页自动确认，HTTP 全程 mock）、CAS 会话存取（DPAPI cookie jar、路径归一、坏文件容错）、配置存储与 DPAPI 加解密、完整登录链路（用错凭据，预期被拒）、单实例互斥锁与日志落盘。这套测试是给开发用的，平时不用管：二次认证和会话两个套件的 HTTP 全部是假的，不会碰真账号，也不会真发短信。
+九个套件依次跑，全过则退出码 0：脚本语法与纯 ASCII 检查、DES 黄金向量、CAS 报错解析（离线，直接吃 `refs/` 里抓回来的真页面）、二次认证全流程（图形验证码、发短信、四轮重试、「信任设备」页自动确认，HTTP 全程 mock）、CAS 会话存取（DPAPI cookie jar、路径归一、坏文件容错）、配置存储与 DPAPI 加解密、UU 远程 / ToDesk 保活（不启动真软件）、完整登录链路（用错凭据，预期被拒）、单实例互斥锁与日志落盘。这套测试是给开发用的，平时不用管：二次认证、会话和远程保活三个套件的网络与进程操作全部是假的，不会碰真账号，也不会真启动软件、真发短信。
 
 「信任设备」那页真机抓样子太随机，`refs/cas_trust_device_page.html` 是按 CAS 实际页面结构做的等价样本，二次认证套件拿它验证识别、`check_user_device=true` 提交和整链路走通。
 
@@ -305,6 +349,7 @@ lib\CasAuth.psm1       门户挑战、CAS 表单、登录、在线探测
 lib\CasDes.psm1        CAS 的 strEnc / DES 实现（PowerShell 移植）
 lib\ConfigStore.psm1   配置读写与 DPAPI 凭据加解密
 lib\CasSession.psm1    CAS 会话（cookie jar）的加密存取
+lib\RemoteAppWatch.psm1 UU 远程 / ToDesk 进程检测与自动拉起
 tools\                 测试与诊断脚本
 refs\                  抓取的 CAS 页面与原始 JS，仅作比对参考
 ```
@@ -316,5 +361,6 @@ refs\                  抓取的 CAS 页面与原始 JS，仅作比对参考
 - 二次认证账号的免密重连全押在那个会话上。会话过期后必须有人再跑一次 `-CasLogin`，后台收不了短信；CAS 会话具体能活多久它自己没说，通常几天到几周。
 - 计划任务注册没做端到端验证：开发用的机器在策略上禁止当前身份注册计划任务，`Register-ScheduledTask` 和 `schtasks` 都是 `Access is denied`。`-Mode RunKey` 这条链路倒是完整跑通过：写注册表、后台隐藏进程常驻、`-Status` 认得出、卸载清得干净。
 - `-Mode RunKey` 只在你登录之后才启动，进程被杀也不会自动拉起。
+- UU 远程 / ToDesk 保活只在 `-Mode Logon` 或 `-Mode RunKey` 下可用；`-Mode Startup` 是 SYSTEM 会话，脚本不会尝试启动桌面软件。它只按进程名和 exe 路径拉起进程，不负责这两个软件自己的登录、更新或配置。
 - 学校要是改了 CAS 表单字段或加密算法，脚本会失效；`refs/` 留了当时的页面和 JS 方便比对。
 - 探测点走 HTTP，若哪天校园网开始拦截这些探测地址，可能误判离线；换 `lib\CasAuth.psm1` 里的 `$script:OnlineProbes` 即可。

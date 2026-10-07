@@ -17,6 +17,7 @@ try {
     $config = Read-DlutConfig $configPath
     Check 'CurrentUserDecrypt' ((Unprotect-DlutPassword $config) -ceq $password) ('scope ' + $config.CredentialScope)
     Check 'ConfigNeverPlaintext' ($(Get-Content -LiteralPath $configPath -Raw) -notlike ('*' + $password + '*')) 'no plaintext in json'
+    Check 'RemoteAppsOffByDefault' (-not $config.MonitorRemoteApps) 'disabled'
 
     $null = Set-DlutConfig -Path $configPath -Username '22019999' -Password $password -Scope 'LocalMachine' -IntervalSeconds 99999 -LogRetentionDays 0 -MaxAttemptsPerCycle 99
     $config = Read-DlutConfig $configPath
@@ -26,11 +27,46 @@ try {
     Check 'AttemptsClamped' ($config.MaxAttemptsPerCycle -eq 20) $config.MaxAttemptsPerCycle
     Check 'CredentialReportedOk' ((Test-DlutCredential $config).Ok) $true
 
+    $null = Set-DlutConfig -Path $configPath -MonitorRemoteApps $true `
+        -UuRemotePath 'C:\Program Files\Netease\GameViewer\GameViewer.exe' `
+        -ToDeskPath 'C:\Program Files\ToDesk\ToDesk.exe' `
+        -RemoteAppRestartCooldownSeconds 0
+    $config = Read-DlutConfig $configPath
+    Check 'RemoteAppsEnabled' ($config.MonitorRemoteApps -eq $true) 'enabled'
+    Check 'RemoteAppPathsSaved' ($config.UuRemotePath -like '*GameViewer.exe' -and $config.ToDeskPath -like '*ToDesk.exe') 'both paths'
+    Check 'RemoteCooldownClamped' ($config.RemoteAppRestartCooldownSeconds -eq 15) $config.RemoteAppRestartCooldownSeconds
+
     # Values survive a partial rewrite (only a new password supplied).
     $null = Set-DlutConfig -Path $configPath -Password 'another-pw'
     $config = Read-DlutConfig $configPath
-    Check 'MergeKeepsSettings' ($config.IntervalSeconds -eq 3600 -and $config.Username -eq '22019999') ('interval ' + $config.IntervalSeconds)
+    Check 'MergeKeepsSettings' ($config.IntervalSeconds -eq 3600 -and $config.Username -eq '22019999' -and $config.MonitorRemoteApps) ('interval ' + $config.IntervalSeconds)
     Check 'MergeSwapsPassword' ((Unprotect-DlutPassword $config) -ceq 'another-pw') $true
+
+    $null = Set-DlutConfig -Path $configPath -MonitorRemoteApps $false
+    Check 'RemoteAppsCanBeDisabled' (-not (Read-DlutConfig $configPath).MonitorRemoteApps) 'disabled again'
+
+    # Old config files without the new keys keep the old behavior and must not throw.
+    $oldPath = Join-Path $tmp 'old-config.json'
+    $oldJson = @{
+        Version           = 1
+        Username          = '22019999'
+        PasswordProtected = 'not-used'
+        CredentialScope   = 'CurrentUser'
+        IntervalSeconds   = 30
+    } | ConvertTo-Json
+    Set-Content -LiteralPath $oldPath -Value $oldJson -Encoding UTF8
+    $old = Read-DlutConfig $oldPath
+    Check 'OldConfigCompatible' ($old.IntervalSeconds -eq 30 -and -not $old.MonitorRemoteApps) 'defaults filled'
+
+    # Boolean-looking strings are accepted for people who edit config.json by hand.
+    $stringBoolPath = Join-Path $tmp 'string-bool.json'
+    $stringBoolJson = @{
+        Username          = '22019999'
+        PasswordProtected = 'not-used'
+        MonitorRemoteApps = 'yes'
+    } | ConvertTo-Json
+    Set-Content -LiteralPath $stringBoolPath -Value $stringBoolJson -Encoding UTF8
+    Check 'StringBooleanParsed' ((Read-DlutConfig $stringBoolPath).MonitorRemoteApps -eq $true) 'yes -> true'
 
     # Broken and invalid content must fall back to defaults, not throw.
     Set-Content -LiteralPath $configPath -Value '{ not json' -Encoding UTF8

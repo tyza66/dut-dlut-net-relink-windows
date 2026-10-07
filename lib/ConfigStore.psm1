@@ -33,6 +33,10 @@ function Get-DlutConfigDefaults {
         LogRetentionDays     = 14
         MaxAttemptsPerCycle  = 3
         MaxBackoffSeconds    = 1800
+        MonitorRemoteApps    = $false
+        UuRemotePath         = ''
+        ToDeskPath           = ''
+        RemoteAppRestartCooldownSeconds = 60
     }
 }
 
@@ -71,6 +75,17 @@ function Get-NumberInRange {
     return $number
 }
 
+function Get-BooleanValue {
+    param([object]$Value, [bool]$Default = $false)
+    if ($null -eq $Value) { return $Default }
+    if ($Value -is [bool]) { return $Value }
+    switch -Regex (("$Value").Trim()) {
+        '^(?i:true|yes|on|1)$'  { return $true }
+        '^(?i:false|no|off|0)$' { return $false }
+        default { return $Default }
+    }
+}
+
 function Read-DlutConfig {
     # Never throws: a missing or broken file yields a usable default configuration.
     param([string]$Path = '')
@@ -83,6 +98,8 @@ function Read-DlutConfig {
     $encrypted = Get-JsonValue $raw 'PasswordProtected'
     $scope = Get-JsonValue $raw 'CredentialScope'
     $iface = Get-JsonValue $raw 'InterfaceName'
+    $uuPath = Get-JsonValue $raw 'UuRemotePath'
+    $toDeskPath = Get-JsonValue $raw 'ToDeskPath'
 
     return [pscustomobject]@{
         Version              = Get-NumberInRange (Get-JsonValue $raw 'Version') $script:ConfigVersion 1 1000
@@ -94,6 +111,10 @@ function Read-DlutConfig {
         LogRetentionDays     = Get-NumberInRange (Get-JsonValue $raw 'LogRetentionDays') 14 1 365
         MaxAttemptsPerCycle  = Get-NumberInRange (Get-JsonValue $raw 'MaxAttemptsPerCycle') 3 1 20
         MaxBackoffSeconds    = Get-NumberInRange (Get-JsonValue $raw 'MaxBackoffSeconds') 1800 0 86400
+        MonitorRemoteApps    = Get-BooleanValue (Get-JsonValue $raw 'MonitorRemoteApps') $false
+        UuRemotePath         = if ($null -eq $uuPath) { '' } else { "$uuPath".Trim() }
+        ToDeskPath           = if ($null -eq $toDeskPath) { '' } else { "$toDeskPath".Trim() }
+        RemoteAppRestartCooldownSeconds = Get-NumberInRange (Get-JsonValue $raw 'RemoteAppRestartCooldownSeconds') 60 15 3600
     }
 }
 
@@ -240,7 +261,11 @@ function Set-DlutConfig {
         [string]$InterfaceName = '',
         [int]$LogRetentionDays = -1,
         [int]$MaxAttemptsPerCycle = -1,
-        [int]$BackoffSeconds = -1
+        [int]$BackoffSeconds = -1,
+        [Nullable[bool]]$MonitorRemoteApps = $null,
+        [string]$UuRemotePath = '',
+        [string]$ToDeskPath = '',
+        [int]$RemoteAppRestartCooldownSeconds = -1
     )
     $path = if ($Path) { $Path } else { Get-DlutConfigPath }
     $current = Read-DlutConfig $path
@@ -252,6 +277,10 @@ function Set-DlutConfig {
     $retention = if ($LogRetentionDays -ge 0) { $LogRetentionDays } else { $current.LogRetentionDays }
     $attempts = if ($MaxAttemptsPerCycle -ge 0) { $MaxAttemptsPerCycle } else { $current.MaxAttemptsPerCycle }
     $maxBackoff = if ($BackoffSeconds -ge 0) { $BackoffSeconds } else { $current.MaxBackoffSeconds }
+    $monitorRemote = if ($PSBoundParameters.ContainsKey('MonitorRemoteApps') -and $null -ne $MonitorRemoteApps) { [bool]$MonitorRemoteApps } else { $current.MonitorRemoteApps }
+    $uuPath = if ($PSBoundParameters.ContainsKey('UuRemotePath')) { $UuRemotePath.Trim() } else { $current.UuRemotePath }
+    $toDeskPath = if ($PSBoundParameters.ContainsKey('ToDeskPath')) { $ToDeskPath.Trim() } else { $current.ToDeskPath }
+    $remoteCooldown = if ($RemoteAppRestartCooldownSeconds -ge 0) { $RemoteAppRestartCooldownSeconds } else { $current.RemoteAppRestartCooldownSeconds }
     $encrypted = if ($Password) { Protect-DlutPassword -Password $Password -Scope $scope } else { $current.PasswordProtected }
 
     if (-not $username) { throw 'username is required' }
@@ -267,6 +296,10 @@ function Set-DlutConfig {
         LogRetentionDays     = Get-NumberInRange $retention 14 1 365
         MaxAttemptsPerCycle  = Get-NumberInRange $attempts 3 1 20
         MaxBackoffSeconds    = Get-NumberInRange $maxBackoff 1800 0 86400
+        MonitorRemoteApps    = [bool]$monitorRemote
+        UuRemotePath         = $uuPath
+        ToDeskPath           = $toDeskPath
+        RemoteAppRestartCooldownSeconds = Get-NumberInRange $remoteCooldown 60 15 3600
     }
 
     $directory = Split-Path -Parent $path

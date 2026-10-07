@@ -31,6 +31,7 @@ Import-Module (Join-Path $libPath 'CasDes.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $libPath 'CasAuth.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $libPath 'ConfigStore.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $libPath 'CasSession.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $libPath 'RemoteAppWatch.psm1') -Force -DisableNameChecking
 
 if ($ConfigPath) { $script:ConfigFile = $ConfigPath } else { $script:ConfigFile = Get-DlutConfigPath }
 $script:LogDir = Join-Path (Split-Path -Parent $script:ConfigFile) 'logs'
@@ -51,6 +52,7 @@ function Show-Status {
     $config = Read-DlutConfig $script:ConfigFile
     $ip = Get-PrimaryIPv4 $config.InterfaceName
     $online = Test-InternetOnline
+    $remoteStartAllowed = -not ($env:USERNAME -ieq 'SYSTEM')
     Write-Host ('config          : ' + $script:ConfigFile)
     Write-Host ('username        : ' + $(if ($config.Username) { $config.Username } else { '(not set)' }))
     Write-Host ('password        : ' + $(if ($config.PasswordProtected) { 'stored (DPAPI ' + $config.CredentialScope + ')' } else { '(not set)' }))
@@ -63,6 +65,19 @@ function Show-Status {
     Write-Host ('CAS session     : ' + (Get-DlutSessionSummary -Path $script:SessionPath -Scope $config.CredentialScope))
     Write-Host ('active IPv4     : ' + $(if ($ip) { $ip } else { '(none found)' }))
     Write-Host ('internet        : ' + $(if ($online) { 'online' } else { 'offline' }))
+    if ($config.MonitorRemoteApps) {
+        $definitions = @(Get-DlutRemoteAppDefinitions -UuRemotePath $config.UuRemotePath -ToDeskPath $config.ToDeskPath)
+        $remoteStatuses = @(Get-DlutRemoteAppStatus -Definitions $definitions)
+        $parts = foreach ($remote in $remoteStatuses) {
+            $state = if ($remote.Running) { 'running' } else { 'not running' }
+            if (-not $remote.ExecutablePath) { $state += ', executable not found' }
+            $remote.Name + ' ' + $state
+        }
+        $suffix = if ($remoteStartAllowed) { '' } else { ' (auto-start blocked under SYSTEM; use Logon or RunKey)' }
+        Write-Host ('remote apps     : enabled - ' + ($parts -join ', ') + $suffix)
+    } else {
+        Write-Host 'remote apps     : disabled (UU remote + ToDesk)'
+    }
     $runEntry = $null
     try { $runEntry = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'DutNetRelink' -ErrorAction SilentlyContinue).'DutNetRelink' } catch { }
     $task = Get-ScheduledTask -TaskName 'DutNetRelink' -ErrorAction SilentlyContinue
@@ -287,6 +302,13 @@ if (-not $config.Username -or -not $config.PasswordProtected) {
 }
 if ($Interval -gt 0) { $config.IntervalSeconds = $Interval }
 
+$remoteAppDefinitions = @()
+$remoteWatchState = @{}
+$remoteStartAllowed = -not ($env:USERNAME -ieq 'SYSTEM')
+if ($config.MonitorRemoteApps) {
+    $remoteAppDefinitions = @(Get-DlutRemoteAppDefinitions -UuRemotePath $config.UuRemotePath -ToDeskPath $config.ToDeskPath)
+}
+
 $mutexCreated = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Local\DutNetRelinkWatchdog', [ref]$mutexCreated)
 if (-not $mutexCreated) {
@@ -295,11 +317,39 @@ if (-not $mutexCreated) {
 }
 
 try {
-    Write-Log ('watchdog started (pid ' + $PID + ', interval ' + $config.IntervalSeconds + 's, user ' + $env:USERNAME + ')')
+    Write-Log ('watchdog started (pid ' + $PID + ', interval ' + $config.IntervalSeconds + 's, user ' + $env:USERNAME + ', remote apps ' + $(if ($config.MonitorRemoteApps) { 'enabled' } else { 'disabled' }) + ')')
     $wasOnline = $null
     $backoff = 0
     while ($true) {
         $cycleStart = Get-Date
+        if ($config.MonitorRemoteApps) {
+            $watchResults = @(Invoke-DlutRemoteAppWatch `
+                -Definitions $remoteAppDefinitions `
+                -State $remoteWatchState `
+                -CooldownSeconds $config.RemoteAppRestartCooldownSeconds `
+                -AllowStart:$remoteStartAllowed `
+                -Now $cycleStart)
+            foreach ($watch in $watchResults) {
+                if (-not $watch.Notify) { continue }
+                switch ($watch.Action) {
+                    'started' {
+                        Write-Log ('remote app start requested: ' + $watch.Name + ' (' + $watch.ExecutablePath + ')')
+                    }
+                    'recovered' {
+                        Write-Log ('remote app is running again: ' + $watch.Name)
+                    }
+                    'missing' {
+                        Write-Log ('cannot start remote app ' + $watch.Name + ': executable not found; set UuRemotePath or ToDeskPath in config.json') 'WARN'
+                    }
+                    'start-failed' {
+                        Write-Log ('failed to start remote app ' + $watch.Name + ': ' + $watch.Message) 'WARN'
+                    }
+                    'blocked' {
+                        Write-Log ('remote app keepalive cannot start ' + $watch.Name + ' while the watchdog runs as SYSTEM; use -Mode Logon or RunKey') 'WARN'
+                    }
+                }
+            }
+        }
         $online = Test-InternetOnline
         if ($Login) {
             $result = Invoke-RelinkCycle $config (Get-PrimaryIPv4 $config.InterfaceName) 1
