@@ -158,6 +158,50 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Mode RunKey -DisableRemote
 
 注意：`-Mode Startup` 以 SYSTEM 身份运行，不能把 UU 远程 / ToDesk 正常拉进当前桌面会话，所以脚本会检测到并拒绝启动，只在日志里说明。要用保活，请用 `-Mode Logon` 或 `-Mode RunKey`。
 
+### 保活功能怎么判断和排障
+
+它不是实时守护进程，而是跟着校园网看门狗一起检查。默认最多等一个检测周期（`IntervalSeconds`，默认 45 秒）才会发现软件退出；发现后先尝试启动，再等下一个周期确认进程是否真的回来。
+
+- 判断依据只有进程名：`GameViewer.exe` 和 `ToDesk.exe`。软件缩在托盘里、窗口关了但进程还在，都算正常运行。
+- 同一个进程出现多个 PID 也算正常，ToDesk 在某些版本本来就会同时跑多个 `ToDesk.exe`。
+- `UuRemotePath` / `ToDeskPath` 只在进程已经不在时用来启动。路径可以填官方启动器，不要求和崩溃前那个进程的完整路径完全一样。
+- 两个软件互相独立：UU 远程路径没配好，不影响 ToDesk 保活，也不影响校园网自动重连。
+- 启动失败会按 `RemoteAppRestartCooldownSeconds` 冷却后重试，不会每个循环都反复拉进程、刷日志。
+- 这个功能不负责让软件保持登录、不处理软件更新，也不会绕过 UAC 或软件自己的权限限制。
+
+开启后 `-Status` 大概会显示成这样：
+
+```text
+remote apps     : enabled - UU远程 running, ToDesk not running
+```
+
+对应的日志常见几行：
+
+```text
+[INFO ] remote app start requested: ToDesk (C:\Program Files\ToDesk\ToDesk.exe)
+[INFO ] remote app is running again: ToDesk
+[WARN ] cannot start remote app UU远程: executable not found; set UuRemotePath or ToDeskPath in config.json
+[WARN ] failed to start remote app ToDesk: start failed: Access is denied
+```
+
+直接改配置时，相关字段像下面这样；旧看门狗不会在运行中自动重读配置，改完要把它重启。计划任务可以 `Stop-ScheduledTask` 后再 `Start-ScheduledTask`，RunKey 方式就结束旧进程后重跑一次 `install.ps1`：
+
+```json
+{
+  "MonitorRemoteApps": true,
+  "UuRemotePath": "C:\\Program Files\\Netease\\GameViewer\\GameViewer.exe",
+  "ToDeskPath": "C:\\Program Files\\ToDesk\\ToDesk.exe",
+  "RemoteAppRestartCooldownSeconds": 60
+}
+```
+
+常见情况：
+
+- `Status` 写 `not running, executable not found`：先把对应路径填对。UU 远程常见的启动程序是 `GameViewer\GameViewer.exe`，有的版本实际进程在 `GameViewer\bin\GameViewer.exe`。
+- 日志写 `Access is denied`：看门狗当前身份没有权限启动目标软件。先手动双击看看会不会弹 UAC；如果目标软件必须管理员启动，保活也要用相同权限的环境。
+- 一直出现 `start requested` 但下一轮还是 `not running`：进程启动后马上又退出了。先手动运行同一个 exe 验证，再检查软件自身日志、更新程序或登录状态。
+- `Status` 出现 `auto-start blocked under SYSTEM`：当前是 `-Mode Startup`，换成 `-Mode Logon` 或 `-Mode RunKey` 后再开保活。
+
 ### install.ps1 参数
 
 | 参数 | 说明 |
